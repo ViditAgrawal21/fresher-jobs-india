@@ -63,6 +63,7 @@ select
     count(*) filter (where j.is_active)                                         as active,
     count(*) filter (where j.is_active and j.duplicate_of is not null)          as duplicates,
     count(*) filter (where j.is_active and j.duplicate_of is null and j.tags is not null
+                     and coalesce((j.tags->>'in_india')::boolean, true)
                      and not (j.tags->>'is_fresher')::boolean)                  as not_fresher,
     count(*) filter (where j.is_active and j.duplicate_of is null and j.tags is not null
                      and not coalesce((j.tags->>'in_india')::boolean, true))     as outside_india,

@@ -47,8 +47,8 @@ def _fetch(sql: str, params: dict | None = None) -> list[dict]:
         return conn.execute(sql, params or {}).fetchall()
 
 
-@app.get("/healthz")
-def healthz():
+@app.get("/api/health")  # not /healthz: Cloud Run reserves paths ending in "z" (build log #9)
+def health():
     _fetch("select 1")
     return {"ok": True}
 

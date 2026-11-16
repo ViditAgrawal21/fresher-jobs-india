@@ -45,3 +45,13 @@ export const SOURCE_LABEL: Record<string, string> = {
   ashby: "Company careers",
   smartrecruiters: "Company careers",
 };
+
+export function istTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-IN", { timeZone: IST, hour: "numeric", minute: "2-digit" });
+}
+
+export function duration(startIso: string, endIso: string | null): string {
+  if (!endIso) return "–";
+  const secs = Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 1000);
+  return secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`;
+}

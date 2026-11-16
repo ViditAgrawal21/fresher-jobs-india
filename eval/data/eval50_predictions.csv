@@ -1,0 +1,51 @@
+job_id,model,prompt_version,role,cities,other_city,is_fresher,job_type,work_mode,confidence
+938,claude-haiku-5-5,v2,Software Engineering,Bengaluru,,True,internship,unknown,high
+448,claude-haiku-5-5,v2,Customer Support & Success,Mumbai,,True,full_time,unknown,medium
+1022,claude-haiku-5-5,v2,Sales & Business Development,Ahmedabad,,True,full_time,onsite,medium
+989,claude-haiku-5-5,v2,Core Engineering,Pune,,True,full_time,onsite,medium
+1623,claude-haiku-5-5,v2,Core Engineering,Bengaluru,,True,full_time,onsite,high
+1067,claude-haiku-5-5,v2,Sales & Business Development,Kolkata,,True,full_time,onsite,medium
+1135,claude-haiku-5-5,v2,Customer Support & Success,Delhi,,True,full_time,onsite,high
+843,claude-haiku-5-5,v2,Core Engineering,Other,Puducherry,True,full_time,onsite,medium
+816,claude-haiku-5-5,v2,Core Engineering,Hyderabad,,True,contract,onsite,medium
+891,claude-haiku-5-5,v2,Finance & Accounting,Mumbai,,True,internship,unknown,medium
+897,claude-haiku-5-5,v2,Finance & Accounting,Unspecified,,True,internship,unknown,medium
+261,claude-haiku-5-5,v2,Operations,Bengaluru,,True,internship,unknown,high
+1010,claude-haiku-5-5,v2,Core Engineering,Other,Gandhinagar,True,full_time,onsite,medium
+896,claude-haiku-5-5,v2,AI/ML,Pune,,True,full_time,unknown,medium
+391,claude-haiku-5-5,v2,Marketing,Mumbai,,True,internship,unknown,high
+375,claude-haiku-5-5,v2,Software Engineering,Bengaluru,,True,full_time,unknown,high
+188,claude-haiku-5-5,v2,Content & Communications,Bengaluru,,True,full_time,unknown,medium
+1033,claude-haiku-5-5,v2,Operations,Visakhapatnam,,True,full_time,onsite,high
+29,claude-haiku-5-5,v2,Customer Support & Success,Bengaluru,,True,full_time,unknown,medium
+1089,claude-haiku-5-5,v2,Core Engineering,Unspecified,,True,full_time,onsite,medium
+1186,claude-haiku-5-5,v2,Finance & Accounting,Unspecified,,True,full_time,unknown,medium
+1143,claude-haiku-5-5,v2,Finance & Accounting,Bengaluru,,True,full_time,unknown,high
+829,claude-haiku-5-5,v2,Sales & Business Development,Other,Greater Noida,True,full_time,onsite,medium
+1113,claude-haiku-5-5,v2,AI/ML,Chennai,,True,full_time,unknown,medium
+974,claude-haiku-5-5,v2,Operations,Mumbai,,True,full_time,onsite,medium
+859,claude-haiku-5-5,v2,Customer Support & Success,Mumbai,,True,full_time,unknown,high
+975,claude-haiku-5-5,v2,Software Engineering,Unspecified,,True,full_time,unknown,medium
+876,claude-haiku-5-5,v2,Core Engineering,Other,Tenkasi,True,full_time,onsite,medium
+850,claude-haiku-5-5,v2,Sales & Business Development,Bengaluru,,True,full_time,onsite,high
+865,claude-haiku-5-5,v2,Customer Support & Success,Unspecified,,True,apprenticeship,onsite,medium
+793,claude-haiku-5-5,v2,Education & Teaching,Delhi,,True,full_time,onsite,medium
+270,claude-haiku-5-5,v2,Core Engineering,Bengaluru,,True,full_time,onsite,high
+914,claude-haiku-5-5,v2,Other,Other,Wardha,True,internship,onsite,medium
+149,claude-haiku-5-5,v2,Data & Analytics,Bengaluru,,True,contract,unknown,medium
+11,claude-haiku-5-5,v2,Software Engineering,Bengaluru,,True,internship,onsite,high
+1158,claude-haiku-5-5,v2,Operations,Thiruvananthapuram,,True,full_time,onsite,high
+889,claude-haiku-5-5,v2,Other,Coimbatore,,True,internship,unknown,low
+209,claude-haiku-5-5,v2,HR & Recruiting,Bengaluru,,True,full_time,unknown,medium
+32,claude-haiku-5-5,v2,Software Engineering,Bengaluru,,True,internship,unknown,high
+964,claude-haiku-5-5,v2,Marketing,Kolkata,,True,full_time,onsite,medium
+852,claude-haiku-5-5,v2,Customer Support & Success,Unspecified,,True,full_time,unknown,medium
+987,claude-haiku-5-5,v2,Design,Unspecified,,True,full_time,unknown,medium
+806,claude-haiku-5-5,v2,Customer Support & Success,Bengaluru,,True,full_time,onsite,medium
+888,claude-haiku-5-5,v2,Content & Communications,Pune,,True,internship,onsite,high
+943,claude-haiku-5-5,v2,Finance & Accounting,Remote,,True,internship,remote,high
+978,claude-haiku-5-5,v2,Sales & Business Development,Vadodara,,True,full_time,onsite,high
+991,claude-haiku-5-5,v2,Content & Communications,Bengaluru,,True,internship,onsite,high
+1132,claude-haiku-5-5,v2,Core Engineering,Nagpur;Raipur,,True,full_time,onsite,medium
+1088,claude-haiku-5-5,v2,Core Engineering,Chennai,,True,full_time,onsite,high
+779,claude-haiku-5-5,v2,Healthcare & Life Sciences,Other,Kolhapur,True,full_time,onsite,high

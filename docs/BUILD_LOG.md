@@ -84,3 +84,10 @@ Also found: SmartRecruiters returns an `experienceLevel` field, so `mid_senior_l
 **Fix:** a new tag, `in_india`, which is false when the work itself is abroad, with an overseas-placement example in the prompt. The site hides `in_india = false`. This is prompt **v2** (v1 stays in the repo), and every post was re-tagged with `--retag` for about $0.09.
 
 **Side finding:** the city tags were following the description over the location field when they disagree. "Picker Packer, Mumbai" was tagged Kolkata because the ad only mentions Kolkata. That's arguably right, and it's a case to watch in the hand-check.
+
+### 9. `/healthz` returned Google's 404 on Cloud Run (16 Nov)
+**Symptom:** after the first deploy, `/api/jobs` worked but `/healthz` returned a Google-branded HTML 404 page. The request never reached FastAPI; there was nothing in our logs.
+
+**Cause:** Cloud Run's front end reserves URL paths ending in `z` (`/healthz`, `/readyz`...). It's a documented limitation, and easy to miss because the path works fine locally.
+
+**Fix:** renamed it to `/api/health`. **Lesson:** "works locally" includes the platform's routing layer, so smoke-test every endpoint on the real URL right after deploying.
