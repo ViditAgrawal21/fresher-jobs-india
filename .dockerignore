@@ -1,0 +1,12 @@
+.git
+.venv
+**/__pycache__
+**/node_modules
+web/dist
+.env
+.env.*
+.neon
+notes/
+tests/
+docs/
+*.log
