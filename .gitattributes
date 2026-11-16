@@ -1,0 +1,4 @@
+# LF everywhere: deploy.sh breaks under bash with CRLF
+* text=auto eol=lf
+*.png binary
+*.xlsx binary
