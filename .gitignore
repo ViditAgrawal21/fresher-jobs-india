@@ -1,0 +1,23 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# node
+node_modules/
+web/dist/
+
+# local only
+notes/
+.neon
+*.log
+.DS_Store
+
+# editor / agent local config
+.claude/
