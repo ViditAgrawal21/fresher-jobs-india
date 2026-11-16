@@ -55,3 +55,21 @@ export function duration(startIso: string, endIso: string | null): string {
   const secs = Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 1000);
   return secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`;
 }
+
+// Descriptions are stored as one flattened line. Break them back into paragraphs at the
+// section labels most posts use, so the detail page is readable.
+const SECTIONS =
+  "Role Overview|Job Description|About (?:the )?(?:Role|Job|Company|Us)|Key Responsibilities|Responsibilities|What You(?:'|’)ll Do|Requirements|Qualifications|Eligibility|Skills(?: Required)?|Who (?:We Are Looking For|You Are)|Benefits|Perks|Salary|Stipend|Experience|Education";
+const SPLIT_RE = new RegExp(`\\s(?=(?:${SECTIONS})\\s*:)`, "gi");
+const LABEL_RE = new RegExp(`^(${SECTIONS})\\s*:\\s*`, "i");
+
+export function descriptionParagraphs(text: string): { label: string | null; body: string }[] {
+  return text
+    .split(SPLIT_RE)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const m = part.match(LABEL_RE);
+      return m ? { label: m[1], body: part.slice(m[0].length) } : { label: null, body: part };
+    });
+}

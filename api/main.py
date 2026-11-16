@@ -85,6 +85,27 @@ def search_jobs(
     return {"total": total, "page": page, "page_size": page_size, "items": rows}
 
 
+@app.get("/api/jobs/{job_id}")
+def job_detail(job_id: int, response: Response):
+    rows = _fetch(queries.JOB_DETAIL, {"id": job_id})
+    if not rows:
+        raise HTTPException(status_code=404, detail="job not found")
+    job = rows[0]
+    # A link to a copy (e.g. the Adzuna version) shows the original posting instead.
+    if job["duplicate_of"]:
+        canonical = _fetch(queries.JOB_DETAIL, {"id": job["duplicate_of"]})
+        if canonical:
+            job = canonical[0]
+    job.pop("duplicate_of", None)
+    job["also_on"] = _fetch(queries.ALSO_LISTED, {"id": job["id"]})
+    job["similar"] = (
+        _fetch(queries.SIMILAR_JOBS, {"id": job["id"], "role": job["role"], "cities": job["cities"] or []})
+        if job["role"] else []
+    )
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return job
+
+
 @app.get("/api/facets")
 def facets(response: Response):
     out: dict[str, list[dict]] = {"role": [], "city": [], "job_type": [], "source": []}

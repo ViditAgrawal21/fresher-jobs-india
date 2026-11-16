@@ -31,6 +31,9 @@ from pipeline.tagger import Tagger
 log = logging.getLogger("pipeline")
 
 ALL_SOURCES = ["adzuna", "jooble", "greenhouse", "lever", "ashby", "smartrecruiters"]
+# Jooble is off by default: its job links are blocked by Cloudflare for visitors coming from
+# its API, and it passed off US jobs as India (build log #10). Still runnable with --sources jooble.
+DEFAULT_SOURCES = [s for s in ALL_SOURCES if s != "jooble"]
 
 
 def build_sources(names: list[str], client, known_sr_ids: set[str] | None = None) -> list[Source]:
@@ -160,7 +163,7 @@ def run(source_names: list[str], dry_run: bool = False, retag: bool = False, tag
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--sources", default=",".join(ALL_SOURCES))
+    parser.add_argument("--sources", default=",".join(DEFAULT_SOURCES))
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--retag", action="store_true")
     parser.add_argument("--tag-limit", type=int, default=None, help="tag at most N posts (for testing)")

@@ -83,7 +83,7 @@ export function JobsPage({ stats }: { stats: Stats | null }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement;
-      if (e.key === "/" && !typing) {
+      if (e.key === "/" && !typing && window.location.pathname === "/") {
         e.preventDefault();
         searchRef.current?.focus();
       }

@@ -38,6 +38,17 @@ def html_to_text(raw: str | None) -> str:
     return _WS_RE.sub(" ", raw).strip()
 
 
+# Bosch-style internal prefixes on SmartRecruiters: "IN_Bosch Rexroth India_Engineer / Executive _Tool Engineering"
+_ATS_PREFIX_RE = re.compile(r"^[A-Z]{2}_[^_]{2,40}_")
+
+
+def clean_title(raw: str) -> str:
+    """Readable title for people: drop ATS-internal prefixes and underscores."""
+    title = _ATS_PREFIX_RE.sub("", html_to_text(raw))
+    title = _WS_RE.sub(" ", title.replace("_", " "))
+    return title.strip(" -|")
+
+
 def trim(text: str, limit: int = MAX_DESCRIPTION_CHARS) -> str:
     if len(text) <= limit:
         return text
@@ -72,7 +83,7 @@ def city_key(location: str) -> str:
 
 def to_row(post: RawPost) -> dict:
     """RawPost -> dict matching the `jobs` table columns used by core.db.upsert_jobs."""
-    title = html_to_text(post.title)
+    title = clean_title(post.title)
     company = html_to_text(post.company) or "Unknown"
     location = html_to_text(post.location)
     description = None if post.description is None else trim(html_to_text(post.description))

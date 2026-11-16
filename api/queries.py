@@ -93,3 +93,38 @@ from llm_calls
 where purpose = 'tagging' and ok
 group by model
 """
+
+JOB_DETAIL = f"""
+select j.id, j.title, j.company, j.url, j.location_raw, j.description, j.source, j.duplicate_of,
+       j.tags->>'role' as role,
+       j.tags->'cities' as cities,
+       j.tags->>'other_city' as other_city,
+       j.tags->>'work_mode' as work_mode,
+       j.tags->>'job_type' as job_type,
+       coalesce(j.posted_at, j.first_seen_at) as posted_at,
+       j.first_seen_at, j.last_seen_at,
+       ({VISIBLE}) as listed
+from jobs j
+where j.id = %(id)s
+"""
+
+ALSO_LISTED = """
+select source, url from jobs where duplicate_of = %(id)s and is_active order by source
+"""
+
+SIMILAR_JOBS = f"""
+select j.id, j.title, j.company, j.url, j.location_raw, j.source,
+       j.tags->>'role' as role,
+       j.tags->'cities' as cities,
+       j.tags->>'other_city' as other_city,
+       j.tags->>'work_mode' as work_mode,
+       j.tags->>'job_type' as job_type,
+       coalesce(j.posted_at, j.first_seen_at) as posted_at,
+       '{{}}'::text[] as also_on
+from jobs j
+where {VISIBLE}
+  and j.id <> %(id)s
+  and j.tags->>'role' = %(role)s
+order by (j.tags->'cities' ?| %(cities)s) desc, coalesce(j.posted_at, j.first_seen_at) desc
+limit 4
+"""

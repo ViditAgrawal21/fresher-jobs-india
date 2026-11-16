@@ -34,7 +34,7 @@ AI_TOOLS = [
 
 SOURCES = [
     ("Adzuna India", "Official REST API (free key)", "Listings may be published with Adzuna credit + link; we show 'Jobs by Adzuna' and link via their redirect URL", "Main volume"),
-    ("Jooble", "Official REST API (key on request)", "API is provided for this purpose", "Optional second aggregator"),
+    ("Jooble (dropped)", "Official REST API (key on request)", "API is provided for this purpose", "Dropped: links blocked by Cloudflare for visitors, and US jobs labelled India"),
     ("Greenhouse boards", "Public Job Board API (boards-api.greenhouse.io)", "Public, documented, no auth; made for companies to publish jobs", "14 companies"),
     ("Lever boards", "Public Postings API (api.lever.co/v0/postings)", "Public, documented, no auth", "3 companies"),
     ("Ashby boards", "Public Posting API (api.ashbyhq.com/posting-api)", "Public, documented, no auth", "4 companies"),

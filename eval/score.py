@@ -54,15 +54,40 @@ def _bool(value) -> bool | None:
     return {"true": True, "yes": True, "y": True, "1": True, "false": False, "no": False, "n": False, "0": False}.get(s)
 
 
+def _review_rows(rows: list[dict]) -> dict[int, dict]:
+    """Review sheet (eval/reference.py): the reviewer's fix wins, otherwise the draft stands."""
+    labels = {}
+    for r in rows:
+        if not r.get("job_id"):
+            continue
+        verdict = str(r.get("Correct? (Y/N)") or "").strip().upper()
+        fixed_role = str(r.get("Fixed role") or "").strip()
+        fixed_cities = str(r.get("Fixed cities") or "").strip()
+        fixed_fresher = _bool(r.get("Fixed is_fresher"))
+        labels[int(r["job_id"])] = {
+            "title": r.get("title", ""),
+            "role": fixed_role or str(r.get("draft role") or "").strip(),
+            "cities": city_set(fixed_cities or str(r.get("draft cities") or "")),
+            "is_fresher": fixed_fresher if fixed_fresher is not None else _bool(r.get("draft is_fresher")),
+            "notes": r.get("notes") or "",
+            "reviewed": verdict in ("Y", "N"),
+            "corrected": verdict == "N",
+        }
+    return labels
+
+
 def load_labels(path: Path) -> dict[int, dict]:
     if path.suffix.lower() == ".csv":
         with path.open(encoding="utf-8-sig") as f:
             rows = list(csv.DictReader(f))
     else:
-        ws = load_workbook(path, data_only=True)["Label"]
+        wb = load_workbook(path, data_only=True)
+        ws = wb["Review"] if "Review" in wb.sheetnames else wb["Label"]
         it = ws.iter_rows(values_only=True)
         headers = [str(h) for h in next(it)]
         rows = [dict(zip(headers, r)) for r in it]
+    if rows and "draft role" in rows[0]:
+        return _review_rows(rows)
     labels = {}
     for r in rows:
         role = (r.get("YOUR role") or "").strip()
@@ -74,6 +99,8 @@ def load_labels(path: Path) -> dict[int, dict]:
             "cities": city_set(str(r.get("YOUR cities (separate with ;)") or "")),
             "is_fresher": _bool(r.get("YOUR is_fresher")),
             "notes": r.get("notes") or "",
+            "reviewed": True,
+            "corrected": False,
         }
     return labels
 
@@ -145,7 +172,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--labels", type=Path, default=LABELS_XLSX)
     ap.add_argument("--compare", nargs="*", default=[], help="models to re-tag the same posts with")
-    ap.add_argument("--prompt", default="v1", help="prompt version for --compare runs")
+    ap.add_argument("--prompt", default=None, help="prompt version for --compare runs (default: same as production)")
     args = ap.parse_args()
 
     labels = load_labels(args.labels)
@@ -156,8 +183,16 @@ def main() -> None:
     base_prompt = next(iter(frozen.values()))["prompt_version"]
 
     metrics, errors = score(frozen, labels)
+    reviewed = sum(l.get("reviewed", False) for l in labels.values())
+    corrected = sum(l.get("corrected", False) for l in labels.values())
+    label_source = (
+        "Claude Opus 5.5 draft, reviewed by hand" if "review" in args.labels.name else "labelled by hand, blind"
+    )
     summary = {"model": base_model, "prompt_version": base_prompt, **metrics,
+               "labels": {"source": label_source, "reviewed": reviewed, "corrected": corrected},
                "scored_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "compare": []}
+    if reviewed < len(labels):
+        print(f"WARNING: only {reviewed}/{len(labels)} rows reviewed; the rest use the unreviewed draft label")
 
     print(f"\n{base_model} / prompt {base_prompt}  (n={metrics['n']})")
     print(f"  role  {metrics['role_accuracy']:.0%}  CI {metrics['role_ci'][0]:.0%}-{metrics['role_ci'][1]:.0%}")
@@ -167,6 +202,7 @@ def main() -> None:
         print(f"  fresher precision {metrics['fresher_precision']:.0%}")
 
     RESULTS.mkdir(parents=True, exist_ok=True)
+    args.prompt = args.prompt or base_prompt
     for model in args.compare:
         preds, per_1000, _ = retag(list(labels), model, args.prompt)
         m, errs = score(preds, labels)

@@ -93,9 +93,12 @@ class TagResult:
 
 class Tagger:
     def __init__(self, model: str | None = None, prompt_version: str = DEFAULT_PROMPT_VERSION,
-                 batch_size: int | None = None, workers: int | None = None, client=None):
+                 batch_size: int | None = None, workers: int | None = None, client=None,
+                 effort: str = "low", max_tokens: int = 8000):
         s = get_settings()
         self.model = model or s.tagger_model
+        self.effort = effort  # "low" for production tagging; the eval's reference labeller uses "high"
+        self.max_tokens = max_tokens
         self.prompt_version = prompt_version
         self.batch_size = batch_size or s.tagger_batch_size
         self.workers = workers or s.tagger_workers
@@ -135,11 +138,11 @@ class Tagger:
         try:
             resp = self.client.messages.parse(
                 model=self.model,
-                max_tokens=8000,
+                max_tokens=self.max_tokens,
                 system=[{"type": "text", "text": self.system_prompt, "cache_control": {"type": "ephemeral"}}],
                 messages=[{"role": "user", "content": user}],
                 output_format=TagBatch,
-                output_config={"effort": "low"},
+                output_config={"effort": self.effort},
             )
         except anthropic.APIError as exc:
             call.ok, call.error = False, f"{type(exc).__name__}: {exc}"[:500]

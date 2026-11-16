@@ -6,7 +6,7 @@ import { duration, istDateTime } from "../lib/format";
 
 const STEPS: { title: string; body: string; tech: string }[] = [
   { title: "Schedule", body: "A scheduler starts the pipeline every morning at 6:00 IST. Nobody presses a button.", tech: "Cloud Scheduler → Cloud Run job" },
-  { title: "Collect", body: "Adzuna's India API, Jooble's API, and the public job-board APIs of 27 companies, all fetched in parallel with retries.", tech: "Python · httpx" },
+  { title: "Collect", body: "Adzuna's India API and the public job-board APIs of 27 companies, all fetched in parallel with retries.", tech: "Python · httpx" },
   { title: "Filter", body: "Cheap rules drop clearly senior titles and non-India locations before anything costs money.", tech: "Rules" },
   { title: "De-duplicate", body: "Same link, same company + title + city, or near-identical titles at the same company. Copies are kept but hidden, and the company's own post wins.", tech: "rapidfuzz · union-find" },
   { title: "Tag", body: "Only new posts go to the LLM, 20 per request. Answers are forced into a fixed schema: role, cities, job type, work mode, in India, open to freshers.", tech: "Claude Haiku 5.5" },
@@ -87,6 +87,12 @@ function Pipeline() {
 }
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
+const MODEL_NAMES: Record<string, string> = {
+  "claude-haiku-5-5": "Claude Haiku 5.5",
+  "claude-sonnet-5-5": "Claude Sonnet 5.5",
+  "claude-opus-5-5": "Claude Opus 5.5",
+};
+const modelName = (id: string) => MODEL_NAMES[id] ?? id;
 
 function Metric({ label, value, note }: { label: string; value: ReactNode; note: ReactNode }) {
   return (
@@ -141,17 +147,25 @@ export function AboutPage({ stats }: { stats: Stats | null }) {
       </Section>
 
       <Section title="Quality and cost">
+        {ev?.labels && ev.labels.reviewed < ev.n && (
+          <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-inset ring-amber-600/20">
+            Provisional: measured against draft reference labels while the hand review is in progress ({ev.labels.reviewed}/{ev.n} checked).
+          </p>
+        )}
         <dl className="divide-y divide-stone-200 rounded-xl border border-stone-200 bg-white px-4">
           <Metric
             label="Role tag accuracy"
             value={ev ? pct(ev.role_accuracy) : "Hand-check in progress"}
-            note={ev ? `${ev.n} posts checked by hand, 95% CI ${pct(ev.role_ci[0])}–${pct(ev.role_ci[1])}` : "50 posts, labelled blind"}
+            note={ev ? `${ev.n} posts, 95% CI ${pct(ev.role_ci[0])}–${pct(ev.role_ci[1])}` : "50 sampled posts"}
           />
           <Metric
             label="City tag accuracy"
             value={ev ? pct(ev.city_accuracy) : "Hand-check in progress"}
-            note={ev ? `exact match on every city, 95% CI ${pct(ev.city_ci[0])}–${pct(ev.city_ci[1])}` : "exact match on every city"}
+            note={ev ? `every city must match, 95% CI ${pct(ev.city_ci[0])}–${pct(ev.city_ci[1])}` : "every city must match"}
           />
+          {ev?.fresher_precision != null && (
+            <Metric label="“Open to freshers” precision" value={pct(ev.fresher_precision)} note="of posts shown, how many a fresher can really apply to" />
+          )}
           <Metric
             label="LLM cost per 1,000 posts"
             value={cost?.per_1000_posts_usd != null ? `$${cost.per_1000_posts_usd.toFixed(3)}` : "–"}
@@ -159,6 +173,52 @@ export function AboutPage({ stats }: { stats: Stats | null }) {
           />
           <Metric label="Hosting cost" value="≈ $0 / month" note="Cloud Run, Cloud Scheduler, Neon and Vercel free tiers" />
         </dl>
+        {ev?.labels && <p className="mt-2 text-xs text-stone-500">Reference labels: {ev.labels.source}.</p>}
+
+        {ev?.compare && ev.compare.length > 0 && (
+          <div className="mt-6">
+            <h3 className="text-sm font-medium text-stone-900">Is a bigger model worth it?</h3>
+            <p className="mt-1 text-sm text-stone-600">The same 50 posts and the same prompt, tagged again by each model.</p>
+            <div className="mt-3 overflow-x-auto rounded-xl border border-stone-200 bg-white">
+              <table className="w-full min-w-[480px] text-left text-sm">
+                <thead className="border-b border-stone-200 text-xs text-stone-500">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Model</th>
+                    <th className="px-3 py-2 text-right font-medium">Role</th>
+                    <th className="px-3 py-2 text-right font-medium">City</th>
+                    <th className="px-3 py-2 text-right font-medium">Both right</th>
+                    <th className="px-3 py-2 text-right font-medium">Per 1,000 posts</th>
+                  </tr>
+                </thead>
+                <tbody className="tabular-nums">
+                  <tr className="border-b border-stone-100">
+                    <td className="px-3 py-2">
+                      {modelName(ev.model)} <span className="text-xs text-stone-500">(live tags)</span>
+                    </td>
+                    <td className="px-3 py-2 text-right">{pct(ev.role_accuracy)}</td>
+                    <td className="px-3 py-2 text-right">{pct(ev.city_accuracy)}</td>
+                    <td className="px-3 py-2 text-right">{pct(ev.both_accuracy)}</td>
+                    <td className="px-3 py-2 text-right">{cost?.per_1000_posts_usd != null ? `$${cost.per_1000_posts_usd.toFixed(3)}` : "–"}</td>
+                  </tr>
+                  {ev.compare.map((c) => (
+                    <tr key={c.model} className="border-b border-stone-100 last:border-0">
+                      <td className="px-3 py-2">
+                        {modelName(c.model)} <span className="text-xs text-stone-500">(re-run)</span>
+                      </td>
+                      <td className="px-3 py-2 text-right">{pct(c.role_accuracy)}</td>
+                      <td className="px-3 py-2 text-right">{pct(c.city_accuracy)}</td>
+                      <td className="px-3 py-2 text-right">{pct(c.both_accuracy)}</td>
+                      <td className="px-3 py-2 text-right">${c.cost_per_1000_usd.toFixed(3)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-2 text-xs text-stone-500">
+              With 50 posts, one post is 2 points, so a few points' difference is noise: the same model scores differently on two runs.
+            </p>
+          </div>
+        )}
       </Section>
 
       <Section title="Sources">
@@ -167,7 +227,6 @@ export function AboutPage({ stats }: { stats: Stats | null }) {
             <h3 className="text-sm font-medium text-stone-900">Used</h3>
             <ul className="mt-2 space-y-1.5 text-sm text-stone-600">
               <li>Adzuna India: official API, credited on every listing</li>
-              <li>Jooble: official API</li>
               <li>Greenhouse, Lever, Ashby and SmartRecruiters: the public job-board APIs that 27 companies (Bosch, Swiggy, Razorpay, CRED and others) use for their own career pages</li>
             </ul>
           </div>

@@ -16,6 +16,15 @@ export type Job = {
 
 export type JobsResponse = { total: number; page: number; page_size: number; items: Job[] };
 
+export type JobDetail = Omit<Job, "also_on"> & {
+  description: string;
+  first_seen_at: string;
+  last_seen_at: string;
+  listed: boolean;
+  also_on: { source: string; url: string }[];
+  similar: Job[];
+};
+
 export type FacetValue = { value: string; count: number };
 export type Facets = Record<"role" | "city" | "job_type" | "source", FacetValue[]>;
 
@@ -35,9 +44,11 @@ export type EvalSummary = {
   role_accuracy: number;
   city_accuracy: number;
   both_accuracy: number;
+  fresher_precision: number | null;
   role_ci: [number, number];
   city_ci: [number, number];
-  compare?: { model: string; role_accuracy: number; city_accuracy: number; cost_per_1000_usd: number }[];
+  labels?: { source: string; reviewed: number; corrected: number };
+  compare?: { model: string; prompt_version: string; role_accuracy: number; city_accuracy: number; both_accuracy: number; cost_per_1000_usd: number }[];
 };
 
 export type Stats = {
@@ -74,6 +85,15 @@ export function fetchJobs(f: Filters, page: number, signal?: AbortSignal) {
   if (f.days) p.set("days", f.days);
   if (f.sort) p.set("sort", f.sort);
   return get<JobsResponse>(`/api/jobs?${p}`, signal);
+}
+
+export class NotFoundError extends Error {}
+
+export async function fetchJob(id: number, signal?: AbortSignal): Promise<JobDetail> {
+  const res = await fetch(`/api/jobs/${id}`, { signal });
+  if (res.status === 404) throw new NotFoundError("job not found");
+  if (!res.ok) throw new Error(`/api/jobs/${id} -> ${res.status}`);
+  return res.json() as Promise<JobDetail>;
 }
 
 export const fetchFacets = () => get<Facets>("/api/facets");

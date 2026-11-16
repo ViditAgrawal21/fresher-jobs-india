@@ -91,3 +91,12 @@ Also found: SmartRecruiters returns an `experienceLevel` field, so `mid_senior_l
 **Cause:** Cloud Run's front end reserves URL paths ending in `z` (`/healthz`, `/readyz`...). It's a documented limitation, and easy to miss because the path works fine locally.
 
 **Fix:** renamed it to `/api/health`. **Lesson:** "works locally" includes the platform's routing layer, so smoke-test every endpoint on the real URL right after deploying.
+
+### 10. Jooble's job links led to a "Sorry, you have been blocked" page (16 Nov)
+**Symptom:** on the live site, clicking a Jooble post opened a Cloudflare block page ("You are unable to access jooble.org") instead of the job.
+
+**Cause:** Jooble's Cloudflare blocks visitors arriving on its API's tracking links. We can't fix that from our side. Jooble was already the weakest source: it returned US jobs labelled "India" (#8) and only 9 of 379 live posts came from it.
+
+**Fix:** dropped Jooble from the daily run (still available with `--sources jooble`) and hid its 34 posts. At the same time, clicking a post now opens a **details page on our site** (description preview, tags, "also listed on", similar jobs); only "Apply" leaves for the original. A dead source link now costs the student one click, not the whole visit.
+
+**Lesson:** a source's value is what the student can actually open, not what the API returns. Click through your own links.

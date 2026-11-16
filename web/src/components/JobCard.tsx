@@ -1,6 +1,7 @@
 import type { Job } from "../lib/api";
 import { JOB_TYPE_LABEL, SOURCE_LABEL, WORK_MODE_LABEL, hoursSince, timeAgo } from "../lib/format";
-import { ExternalIcon, PinIcon } from "./Icons";
+import { ChevronIcon, PinIcon } from "./Icons";
+import { navigate } from "./Layout";
 
 // Internship vs job is the first thing a student filters on, so it gets its own colour.
 const TYPE_STYLE: Record<Job["job_type"], string> = {
@@ -28,15 +29,18 @@ export function JobCard({ job }: { job: Job }) {
     <article className="group relative rounded-xl border border-stone-200 bg-white p-4 transition-[border-color,box-shadow] duration-150 hover:border-stone-300 hover:shadow-[0_2px_8px_-2px_rgb(28_25_23/0.08)] sm:p-5">
       <div className="flex items-start justify-between gap-3">
         <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug text-stone-900 sm:text-base">
-          {/* Stretched link: the whole card opens the post, which is what you want on a phone. */}
+          {/* Stretched link: the whole card opens the job's page on this site. */}
           <a
-            href={job.url}
-            target="_blank"
-            rel="noopener noreferrer"
+            href={`/jobs/${job.id}`}
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; // let new-tab clicks through
+              e.preventDefault();
+              navigate(`/jobs/${job.id}`);
+            }}
             className="after:absolute after:inset-0 after:rounded-xl group-hover:text-teal-800"
           >
             {job.title}
-            <span className="sr-only"> at {job.company} (opens the original post in a new tab)</span>
+            <span className="sr-only"> at {job.company}</span>
           </a>
         </h3>
         {isNew ? (
@@ -83,12 +87,9 @@ export function JobCard({ job }: { job: Job }) {
           {alsoOn.length > 0 && <> · also on {alsoOn.join(", ")}</>}
           {isNew && <> · {timeAgo(job.posted_at)}</>}
         </p>
-        <span
-          aria-hidden
-          className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-stone-900 px-3 py-1.5 text-xs font-medium text-white transition-colors group-hover:bg-teal-700"
-        >
-          Apply
-          <ExternalIcon className="h-3 w-3" />
+        <span aria-hidden className="inline-flex shrink-0 items-center gap-0.5 text-xs font-medium text-teal-700">
+          View details
+          <ChevronIcon className="h-3.5 w-3.5 -rotate-90 transition-transform duration-150 group-hover:translate-x-0.5" />
         </span>
       </div>
     </article>

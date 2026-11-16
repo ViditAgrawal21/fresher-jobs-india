@@ -18,7 +18,14 @@ export function useUrlFilters(): [Filters, (patch: Partial<Filters>) => void, ()
   const [filters, setFilters] = useState<Filters>(read);
 
   useEffect(() => {
-    const onPop = () => setFilters(read());
+    const onPop = () => {
+      if (window.location.pathname !== "/") return;
+      // Same filters (e.g. back from a job page) -> keep the same object so the list isn't refetched.
+      setFilters((prev) => {
+        const next = read();
+        return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+      });
+    };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);

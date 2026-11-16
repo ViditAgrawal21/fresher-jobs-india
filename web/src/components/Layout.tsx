@@ -3,10 +3,25 @@ import { GitHubIcon } from "./Icons";
 
 export const REPO_URL = "https://github.com/ViditAgrawal21/fresher-jobs-india";
 
+const scrollPositions = new Map<string, number>();
+const here = () => window.location.pathname + window.location.search;
+
 export function navigate(path: string) {
+  scrollPositions.set(here(), window.scrollY);
   window.history.pushState(null, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
   window.scrollTo(0, 0);
+}
+
+/** Call after the page for the current URL has rendered (on back/forward). */
+export function restoreScroll() {
+  window.scrollTo(0, scrollPositions.get(here()) ?? 0);
+}
+
+export function goBackOr(fallback: string) {
+  // came from inside the site -> real back (keeps list state); deep link -> go to the list
+  if (scrollPositions.size > 0) window.history.back();
+  else navigate(fallback);
 }
 
 function NavLink({ to, children, active }: { to: string; children: ReactNode; active: boolean }) {
@@ -46,7 +61,7 @@ export function Layout({ path, children }: { path: string; children: ReactNode }
             <span>Fresher Jobs India</span>
           </a>
           <nav className="flex items-center gap-0.5">
-            <NavLink to="/" active={path === "/"}>Jobs</NavLink>
+            <NavLink to="/" active={path === "/" || path.startsWith("/jobs/")}>Jobs</NavLink>
             <NavLink to="/about" active={path === "/about"}>How it works</NavLink>
             <a
               href={REPO_URL}

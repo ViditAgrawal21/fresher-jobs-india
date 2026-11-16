@@ -1,7 +1,7 @@
 from core.models import RawPost
 from core.taxonomy import cities_in, normalize_city_label
 from pipeline.filters import is_india, looks_senior
-from pipeline.normalize import canonical_url, company_norm, html_to_text, title_norm, to_row
+from pipeline.normalize import canonical_url, clean_title, company_norm, html_to_text, title_norm, to_row
 
 
 def test_company_norm_strips_legal_suffixes():
@@ -72,3 +72,11 @@ def test_to_row_keeps_none_description_for_known_posts():
                          title="Process Associate", company="Bosch", location="Bengaluru", description=None))
     assert row["description"] is None and row["content_hash"] is None
     assert row["dedup_key"] == "bosch|process associate|Bengaluru"
+
+
+def test_clean_title_strips_ats_prefixes():
+    assert clean_title("IN_Bosch Rexroth India_Engineer / Executive _Tool Engineering") == "Engineer / Executive Tool Engineering"
+    assert clean_title("IN_RBIN_Sr. Engineer / Assistant Manager") == "Sr. Engineer / Assistant Manager"
+    assert clean_title("Embedded_C++ Developer_EBH") == "Embedded C++ Developer EBH"
+    assert clean_title("QA_Automation Engineer") == "QA Automation Engineer"
+    assert clean_title("Data Analyst Intern") == "Data Analyst Intern"

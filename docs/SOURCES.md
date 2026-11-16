@@ -5,7 +5,7 @@ The task says "respect each site's terms", so the rule was simple: **only use da
 | Source | How | Terms | Notes |
 |---|---|---|---|
 | **Adzuna India** | Official REST API, free key | Publishing listings is allowed if each one credits Adzuna and links back | Main volume. Cards say "Jobs by Adzuna" and link through Adzuna's `redirect_url`. |
-| **Jooble** | Official REST API, key on request | API provided for this | Optional; switched on when the key arrives. |
+| ~~Jooble~~ | Official REST API, key on request | API provided for this | **Dropped (16 Nov).** Its job links hit a Cloudflare block page for real visitors, and it returned US jobs labelled "India". See build log #10. |
 | **Greenhouse** | `boards-api.greenhouse.io/v1/boards/{company}/jobs` | Public Job Board API, no auth, made for publishing jobs | 14 companies |
 | **Lever** | `api.lever.co/v0/postings/{company}` | Public Postings API, no auth | 3 companies. Slow API, so it gets a 90 s timeout. |
 | **Ashby** | `api.ashbyhq.com/posting-api/job-board/{company}` | Public Posting API, no auth | 4 companies |
