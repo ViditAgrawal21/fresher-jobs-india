@@ -1,17 +1,9 @@
-# One image, two entrypoints:
-#   web service (default CMD)  -> uvicorn api.main:app
-#   daily Cloud Run job        -> python -m pipeline.run
-
-# ---- build the React app ----
-FROM node:22-alpine AS web
-WORKDIR /web
-COPY web/package.json web/package-lock.json ./
-RUN npm ci --no-audit --no-fund
-COPY web/ ./
-RUN npm run build
-
-# ---- python runtime ----
+# Backend image, two entrypoints:
+#   Cloud Run service (default CMD) -> uvicorn api.main:app
+#   daily Cloud Run job             -> python -m pipeline.run
+# The React app is deployed separately on Vercel (web/vercel.json proxies /api/* here).
 FROM python:3.12-slim
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -26,7 +18,6 @@ COPY pipeline/ pipeline/
 COPY api/ api/
 COPY db/ db/
 COPY eval/results/ eval/results/
-COPY --from=web /web/dist web/dist
 
 RUN useradd --create-home --uid 10001 app
 USER app

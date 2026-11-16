@@ -11,5 +11,5 @@ tests/
 docs/
 *.log
 
-# gcloud builds submit uses the Dockerfile in infra/
-!infra/
+web/
+eval/data/

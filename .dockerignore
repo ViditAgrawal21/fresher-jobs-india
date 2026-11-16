@@ -10,3 +10,5 @@ notes/
 tests/
 docs/
 *.log
+web/
+eval/data/

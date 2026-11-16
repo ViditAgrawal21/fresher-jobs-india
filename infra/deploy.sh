@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# Deploy to GCP: Cloud Run service (site + API), Cloud Run job (pipeline), Cloud Scheduler (daily trigger).
+# Deploy the backend to GCP: Cloud Run service (API), Cloud Run job (daily pipeline),
+# Cloud Scheduler (06:00 IST trigger). The web app is on Vercel and proxies /api/* to the service.
 #
 #   PROJECT_ID=my-project ./infra/deploy.sh setup     # once: APIs, registry, service accounts
 #   PROJECT_ID=my-project ./infra/deploy.sh secrets   # push .env / .env.local values to Secret Manager
 #   PROJECT_ID=my-project ./infra/deploy.sh all       # build image + deploy service, job, schedule
 #   PROJECT_ID=my-project ./infra/deploy.sh run-now   # trigger the pipeline job once
-#   PROJECT_ID=my-project ./infra/deploy.sh domain    # map beep.viditagrawal.in to the service
 #
-# Region is asia-southeast1 (Singapore): Cloud Run domain mapping isn't available in asia-south1 (Mumbai).
+# Region is asia-southeast1 (Singapore), the same region as the Neon database: every API
+# request does a DB round trip, so API <-> DB distance matters more than user <-> API.
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:?set PROJECT_ID}"
 REGION="${REGION:-asia-southeast1}"
-DOMAIN="${DOMAIN:-beep.viditagrawal.in}"
 REPO=fresher-jobs
-SERVICE=fresher-jobs-web
+SERVICE=fresher-jobs-api
 JOB=fresher-jobs-pipeline
 SCHEDULE_NAME=fresher-jobs-daily
 RUNTIME_SA="fresher-jobs-runtime@${PROJECT_ID}.iam.gserviceaccount.com"
@@ -35,17 +35,12 @@ secret_flags() {
   (IFS=,; echo "${pairs[*]}")
 }
 
-# Read KEY from .env.local then .env without printing it.
+# Read a setting through the app's own loader (same .env/.env.local rules, case and
+# spacing tolerant) and write it to stdout. Never echoed to the terminal.
+PYTHON="${PYTHON:-.venv/Scripts/python.exe}"
+[[ -x "$PYTHON" ]] || PYTHON=python
 env_value() {
-  local key="$1" f line
-  for f in .env.local .env; do
-    [[ -f "$f" ]] || continue
-    line="$(grep -E "^${key}=" "$f" | tail -1 || true)"
-    if [[ -n "$line" ]]; then
-      line="${line#*=}"; line="${line%\"}"; line="${line#\"}"; line="${line%\'}"; line="${line#\'}"
-      printf '%s' "$line"; return
-    fi
-  done
+  "$PYTHON" -c "import sys; from core.config import Settings; sys.stdout.write(getattr(Settings(), sys.argv[1].lower(), '') or '')" "$1"
 }
 
 setup() {
@@ -111,13 +106,6 @@ run_now() {
   gc run jobs execute "$JOB" --region "$REGION" --wait
 }
 
-domain() {
-  echo "1) Verify ownership of ${DOMAIN#*.} once: gcloud domains verify ${DOMAIN#*.}"
-  gc beta run domain-mappings create --service "$SERVICE" --domain "$DOMAIN" --region "$REGION" || true
-  echo "2) Add the DNS record(s) below at your DNS provider:"
-  gc beta run domain-mappings describe --domain "$DOMAIN" --region "$REGION" --format 'table(status.resourceRecords)'
-}
-
 case "${1:-all}" in
   setup) setup ;;
   secrets) secrets ;;
@@ -125,6 +113,5 @@ case "${1:-all}" in
   deploy) deploy ;;
   all) build; deploy ;;
   run-now) run_now ;;
-  domain) domain ;;
-  *) echo "usage: $0 {setup|secrets|build|deploy|all|run-now|domain}"; exit 1 ;;
+  *) echo "usage: $0 {setup|secrets|build|deploy|all|run-now}"; exit 1 ;;
 esac

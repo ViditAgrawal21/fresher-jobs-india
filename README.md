@@ -23,11 +23,12 @@ flowchart LR
     P --> T["Claude Haiku 5.5<br/>new posts only, 20 per call"]
     T --> DB[("Neon Postgres")]
     P --> DB
-    W["Cloud Run service<br/>FastAPI + React"] --> DB
-    U["beep.viditagrawal.in"] --> W
+    W["Cloud Run service<br/>FastAPI"] --> DB
+    V["Vercel<br/>React app"] -- "/api/* proxied" --> W
+    U["beep.viditagrawal.in"] --> V
 ```
 
-One Docker image, two entrypoints: the web service (`uvicorn api.main:app`) and the daily job (`python -m pipeline.run`).
+The React app is static and hosted on Vercel, which proxies `/api/*` to Cloud Run (see [web/vercel.json](web/vercel.json)), so the browser only ever talks to one origin and the API needs no CORS. The backend is one Docker image with two entrypoints: the API service (`uvicorn api.main:app`) and the daily job (`python -m pipeline.run`).
 
 **A run, step by step** ([pipeline/run.py](pipeline/run.py)):
 
@@ -47,7 +48,8 @@ One Docker image, two entrypoints: the web service (`uvicorn api.main:app`) and 
 - **Batching + structured outputs.** The ~2k-token system prompt is paid once per 20 posts. The schema makes invalid roles/cities impossible, and ids are checked so a skipped or invented id can't attach tags to the wrong post.
 - **Tags in JSONB.** Adding a tag (e.g. stipend, skills) is a schema + prompt change and a `--retag`, with no migration.
 - **Postgres full-text + trigram search** instead of Elastic/Algolia. At a few thousand rows it's milliseconds, and it's one less system.
-- **Cloud Run job + Scheduler** instead of an always-on worker. It runs ~5 minutes a day and costs nothing the rest of the time.
+- **Cloud Run job + Scheduler** instead of an always-on worker. It runs a few minutes a day and costs nothing the rest of the time.
+- **API next to the database.** Cloud Run and Neon are both in Singapore. Every API request is a DB round trip, so that distance matters more than user-to-API distance (Vercel's edge sits in front anyway).
 - **Short-lived DB connections.** Neon scales to zero and drops idle connections (see build log #4).
 
 ## Run locally
@@ -72,17 +74,19 @@ python -m eval.score --compare claude-sonnet-5-5      # after labelling
 python -m eval.export_sheet                           # working sheet for the submission
 ```
 
-## Deploy (GCP)
+## Deploy
+
+**Backend (GCP):**
 
 ```bash
 export PROJECT_ID=...
 ./infra/deploy.sh setup      # APIs, Artifact Registry, service accounts (once)
 ./infra/deploy.sh secrets    # .env / .env.local -> Secret Manager
-./infra/deploy.sh all        # build, deploy service + job, create the 06:00 IST schedule
-./infra/deploy.sh domain     # map beep.viditagrawal.in
+./infra/deploy.sh all        # build, deploy API + job, create the 06:00 IST schedule
+./infra/deploy.sh run-now    # run the pipeline once without waiting for 06:00
 ```
 
-Region is `asia-southeast1`, because Cloud Run domain mapping isn't available in `asia-south1` (Mumbai).
+**Web (Vercel):** import the repo with root directory `web` (framework: Vite). The `/api/*` rewrite in `web/vercel.json` points at the Cloud Run URL. The custom domain is attached in Vercel.
 
 ## Layout
 
@@ -93,7 +97,7 @@ api/        FastAPI app + SQL
 web/        React + Vite + Tailwind
 eval/       sampling, scoring, sheet export
 db/         schema.sql
-infra/      Dockerfile, Cloud Build, deploy script
+infra/      backend Dockerfile, Cloud Build, deploy script
 docs/       build log, sources, eval
 ```
 

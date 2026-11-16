@@ -122,8 +122,16 @@ def stats(response: Response):
     }
 
 
-# ---- frontend (built React app) ----
-if WEB_DIST.exists():
+# ---- frontend ----
+# In production the React app is on Vercel, which proxies /api/* here. Locally, after
+# `npm run build`, this same app serves web/dist so everything runs on one port.
+if not WEB_DIST.exists():
+
+    @app.get("/", include_in_schema=False)
+    def root():
+        return {"service": "fresher-jobs-api", "site": "https://beep.viditagrawal.in", "docs": "/api/docs"}
+
+else:
     app.mount("/assets", StaticFiles(directory=WEB_DIST / "assets"), name="assets")
 
     @app.get("/{path:path}", include_in_schema=False)
