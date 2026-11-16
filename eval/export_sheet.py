@@ -16,6 +16,7 @@ from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 
 from core import db
+from eval.reference import REVIEW_XLSX
 from eval.sample import LABELS_XLSX, PREDICTIONS_CSV
 from eval.score import RESULTS, load_labels
 from pipeline.tagger import PRICES, PROMPT_DIR, load_prompt
@@ -25,7 +26,9 @@ OUT = RESULTS / "working_sheet.xlsx"
 AI_TOOLS = [
     ("Claude Haiku 5.5 (claude-haiku-5-5)", "Production tagger: role, cities, work mode, job type, is_fresher for every new post",
      "Structured outputs (JSON schema from Pydantic), 20 posts per request, effort=low. Prompt: Prompts tab."),
-    ("Claude Sonnet 5.5 (claude-sonnet-5-5)", "Comparison model on the same 50 hand-labelled posts",
+    ("Claude Opus 5.5 (claude-opus-5-5)", "Drafted reference labels for the 50 eval posts, which I then reviewed by hand",
+     "High effort, same rules; it never saw the production model's answers, and the review sheet hides them too."),
+    ("Claude Sonnet 5.5 (claude-sonnet-5-5)", "Comparison model on the same 50 posts",
      "Same prompt and schema; used to decide whether the 20x price buys real accuracy."),
     ("Claude Code", "Pair-programming: scaffolding, tests, deploy script, docs drafts",
      "Architecture, source choices (ToS), dedup rules, taxonomy, eval method and every fix in the build log were my decisions and were reviewed by me."),
@@ -124,8 +127,9 @@ def main() -> None:
             for r in collected],
            [7, 22, 15, 45, 22, 26, 26, 26, 11, 50])
 
-    if LABELS_XLSX.exists() and PREDICTIONS_CSV.exists():
-        labels = load_labels(LABELS_XLSX)
+    labels_file = REVIEW_XLSX if REVIEW_XLSX.exists() else LABELS_XLSX
+    if labels_file.exists() and PREDICTIONS_CSV.exists():
+        labels = load_labels(labels_file)
         with PREDICTIONS_CSV.open(encoding="utf-8") as f:
             preds = {int(r["job_id"]): r for r in csv.DictReader(f)}
         rows = []
@@ -135,8 +139,8 @@ def main() -> None:
             rows.append([job_id, l["title"], l["role"], p.get("role"), "✓" if l["role"] == p.get("role") else "✗",
                          "; ".join(sorted(l["cities"])), "; ".join(sorted(p_cities)), "✓" if set(l["cities"]) == p_cities else "✗",
                          l["is_fresher"], p.get("is_fresher"), l["notes"]])
-        _sheet(wb, "Eval 50", ["job_id", "title", "my role", "model role", "role ok", "my cities", "model cities", "city ok",
-                               "my is_fresher", "model is_fresher", "notes"], rows, [8, 40, 24, 24, 8, 24, 24, 8, 12, 14, 40])
+        _sheet(wb, "Eval 50", ["job_id", "title", "reference role", "model role", "role ok", "reference cities", "model cities", "city ok",
+                               "reference is_fresher", "model is_fresher", "notes"], rows, [8, 40, 24, 24, 8, 24, 24, 8, 12, 14, 40])
 
     summary_path = RESULTS / "summary.json"
     if summary_path.exists():

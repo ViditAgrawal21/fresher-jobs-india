@@ -19,11 +19,11 @@
     0.902
   ],
   "labels": {
-    "source": "Claude Opus 5.5 draft, reviewed by hand",
+    "source": "Claude Opus 5.5 draft, not yet reviewed by hand",
     "reviewed": 0,
     "corrected": 0
   },
-  "scored_at": "2026-11-16T13:47:07+00:00",
+  "scored_at": "2026-11-16T13:52:18+00:00",
   "compare": [
     {
       "model": "claude-sonnet-5-5",
@@ -45,29 +45,29 @@
         0.738,
         0.93
       ],
-      "cost_per_1000_usd": 2.0186
+      "cost_per_1000_usd": 2.0188
     },
     {
       "model": "claude-haiku-5-5",
       "prompt_version": "v2",
       "n": 50,
-      "role_accuracy": 0.9,
+      "role_accuracy": 0.88,
       "city_accuracy": 0.96,
-      "both_accuracy": 0.86,
+      "both_accuracy": 0.84,
       "fresher_precision": 1.0,
       "role_ci": [
-        0.786,
-        0.957
+        0.762,
+        0.944
       ],
       "city_ci": [
         0.865,
         0.989
       ],
       "both_ci": [
-        0.738,
-        0.93
+        0.715,
+        0.917
       ],
-      "cost_per_1000_usd": 0.1021
+      "cost_per_1000_usd": 0.0721
     }
   ]
 }

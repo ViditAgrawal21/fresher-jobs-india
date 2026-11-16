@@ -168,11 +168,28 @@ def retag(ids: list[int], model: str, prompt_version: str) -> tuple[dict[int, di
     return preds, per_1000, result.calls
 
 
+def cached_retag(ids: list[int], model: str, prompt_version: str, fresh: bool) -> tuple[dict[int, dict], float]:
+    """Re-tag once and keep the answers: re-scoring after label review must not re-roll the
+    model (runs differ by a few posts) or spend money again."""
+    path = RESULTS / f"predictions_{model}_{prompt_version}.json"
+    if path.exists() and not fresh:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        preds = {int(i): {**p, "cities": frozenset(p["cities"])} for i, p in data["predictions"].items()}
+        return preds, data["cost_per_1000_usd"]
+    preds, per_1000, _ = retag(ids, model, prompt_version)
+    path.write_text(json.dumps({
+        "model": model, "prompt_version": prompt_version, "cost_per_1000_usd": per_1000,
+        "predictions": {str(i): {**p, "cities": sorted(p["cities"])} for i, p in preds.items()},
+    }, indent=1), encoding="utf-8")
+    return preds, per_1000
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--labels", type=Path, default=LABELS_XLSX)
     ap.add_argument("--compare", nargs="*", default=[], help="models to re-tag the same posts with")
     ap.add_argument("--prompt", default=None, help="prompt version for --compare runs (default: same as production)")
+    ap.add_argument("--fresh", action="store_true", help="re-tag --compare models even if cached answers exist")
     args = ap.parse_args()
 
     labels = load_labels(args.labels)
@@ -185,9 +202,15 @@ def main() -> None:
     metrics, errors = score(frozen, labels)
     reviewed = sum(l.get("reviewed", False) for l in labels.values())
     corrected = sum(l.get("corrected", False) for l in labels.values())
-    label_source = (
-        "Claude Opus 5.5 draft, reviewed by hand" if "review" in args.labels.name else "labelled by hand, blind"
-    )
+    n = len(labels)
+    if "review" not in args.labels.name:
+        label_source = "labelled by hand, blind"
+    elif reviewed == n:
+        label_source = f"Claude Opus 5.5 draft, every row reviewed by hand ({corrected} corrected)"
+    elif reviewed:
+        label_source = f"Claude Opus 5.5 draft, {reviewed} of {n} rows reviewed by hand so far"
+    else:
+        label_source = "Claude Opus 5.5 draft, not yet reviewed by hand"
     summary = {"model": base_model, "prompt_version": base_prompt, **metrics,
                "labels": {"source": label_source, "reviewed": reviewed, "corrected": corrected},
                "scored_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "compare": []}
@@ -204,7 +227,7 @@ def main() -> None:
     RESULTS.mkdir(parents=True, exist_ok=True)
     args.prompt = args.prompt or base_prompt
     for model in args.compare:
-        preds, per_1000, _ = retag(list(labels), model, args.prompt)
+        preds, per_1000 = cached_retag(list(labels), model, args.prompt, args.fresh)
         m, errs = score(preds, labels)
         summary["compare"].append({"model": model, "prompt_version": args.prompt, **m, "cost_per_1000_usd": round(per_1000, 4)})
         print(f"\n{model} / prompt {args.prompt}  (n={m['n']}, ${per_1000:.4f} per 1,000 posts)")

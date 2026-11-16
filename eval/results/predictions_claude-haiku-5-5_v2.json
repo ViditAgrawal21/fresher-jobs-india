@@ -1,0 +1,458 @@
+{
+ "model": "claude-haiku-5-5",
+ "prompt_version": "v2",
+ "cost_per_1000_usd": 0.07207160000000001,
+ "predictions": {
+  "11": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Software Engineering",
+   "cities": [
+    "Bengaluru"
+   ],
+   "is_fresher": true
+  },
+  "29": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Customer Support & Success",
+   "cities": [
+    "Bengaluru"
+   ],
+   "is_fresher": false
+  },
+  "32": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Software Engineering",
+   "cities": [
+    "Bengaluru"
+   ],
+   "is_fresher": true
+  },
+  "149": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Marketing",
+   "cities": [
+    "Bengaluru"
+   ],
+   "is_fresher": false
+  },
+  "188": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Content & Communications",
+   "cities": [
+    "Bengaluru"
+   ],
+   "is_fresher": false
+  },
+  "209": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "HR & Recruiting",
+   "cities": [
+    "Bengaluru"
+   ],
+   "is_fresher": false
+  },
+  "261": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Operations",
+   "cities": [
+    "Bengaluru"
+   ],
+   "is_fresher": true
+  },
+  "270": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Core Engineering",
+   "cities": [
+    "Bengaluru"
+   ],
+   "is_fresher": true
+  },
+  "375": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Software Engineering",
+   "cities": [
+    "Bengaluru"
+   ],
+   "is_fresher": true
+  },
+  "391": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Marketing",
+   "cities": [
+    "Mumbai"
+   ],
+   "is_fresher": true
+  },
+  "448": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Customer Support & Success",
+   "cities": [
+    "Mumbai"
+   ],
+   "is_fresher": false
+  },
+  "779": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Healthcare & Life Sciences",
+   "cities": [
+    "Kolkata"
+   ],
+   "is_fresher": true
+  },
+  "793": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Education & Teaching",
+   "cities": [
+    "Delhi"
+   ],
+   "is_fresher": false
+  },
+  "806": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Customer Support & Success",
+   "cities": [
+    "Bengaluru"
+   ],
+   "is_fresher": true
+  },
+  "816": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Operations",
+   "cities": [
+    "Hyderabad"
+   ],
+   "is_fresher": true
+  },
+  "829": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Operations",
+   "cities": [
+    "Noida"
+   ],
+   "is_fresher": true
+  },
+  "843": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Core Engineering",
+   "cities": [
+    "Other"
+   ],
+   "is_fresher": true
+  },
+  "850": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Sales & Business Development",
+   "cities": [
+    "Bengaluru"
+   ],
+   "is_fresher": true
+  },
+  "852": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Customer Support & Success",
+   "cities": [
+    "Unspecified"
+   ],
+   "is_fresher": true
+  },
+  "859": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Customer Support & Success",
+   "cities": [
+    "Mumbai"
+   ],
+   "is_fresher": true
+  },
+  "865": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Customer Support & Success",
+   "cities": [
+    "Unspecified"
+   ],
+   "is_fresher": true
+  },
+  "876": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Core Engineering",
+   "cities": [
+    "Other"
+   ],
+   "is_fresher": true
+  },
+  "888": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Content & Communications",
+   "cities": [
+    "Pune"
+   ],
+   "is_fresher": true
+  },
+  "889": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Core Engineering",
+   "cities": [
+    "Coimbatore"
+   ],
+   "is_fresher": true
+  },
+  "891": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Finance & Accounting",
+   "cities": [
+    "Mumbai"
+   ],
+   "is_fresher": true
+  },
+  "896": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "AI/ML",
+   "cities": [
+    "Pune"
+   ],
+   "is_fresher": false
+  },
+  "897": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Finance & Accounting",
+   "cities": [
+    "Unspecified"
+   ],
+   "is_fresher": true
+  },
+  "914": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Operations",
+   "cities": [
+    "Other"
+   ],
+   "is_fresher": true
+  },
+  "938": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Software Engineering",
+   "cities": [
+    "Bengaluru"
+   ],
+   "is_fresher": true
+  },
+  "943": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Finance & Accounting",
+   "cities": [
+    "Remote"
+   ],
+   "is_fresher": true
+  },
+  "964": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Sales & Business Development",
+   "cities": [
+    "Kolkata"
+   ],
+   "is_fresher": true
+  },
+  "974": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Operations",
+   "cities": [
+    "Mumbai"
+   ],
+   "is_fresher": true
+  },
+  "975": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Software Engineering",
+   "cities": [
+    "Unspecified"
+   ],
+   "is_fresher": true
+  },
+  "978": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Sales & Business Development",
+   "cities": [
+    "Vadodara"
+   ],
+   "is_fresher": true
+  },
+  "987": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Design",
+   "cities": [
+    "Unspecified"
+   ],
+   "is_fresher": true
+  },
+  "989": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Core Engineering",
+   "cities": [
+    "Pune"
+   ],
+   "is_fresher": true
+  },
+  "991": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Content & Communications",
+   "cities": [
+    "Bengaluru"
+   ],
+   "is_fresher": true
+  },
+  "1010": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Core Engineering",
+   "cities": [
+    "Gurugram"
+   ],
+   "is_fresher": true
+  },
+  "1022": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Sales & Business Development",
+   "cities": [
+    "Ahmedabad"
+   ],
+   "is_fresher": true
+  },
+  "1033": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Operations",
+   "cities": [
+    "Visakhapatnam"
+   ],
+   "is_fresher": true
+  },
+  "1067": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Sales & Business Development",
+   "cities": [
+    "Kolkata"
+   ],
+   "is_fresher": true
+  },
+  "1088": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Core Engineering",
+   "cities": [
+    "Chennai"
+   ],
+   "is_fresher": true
+  },
+  "1089": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Core Engineering",
+   "cities": [
+    "Unspecified"
+   ],
+   "is_fresher": true
+  },
+  "1113": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "AI/ML",
+   "cities": [
+    "Chennai"
+   ],
+   "is_fresher": true
+  },
+  "1132": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Core Engineering",
+   "cities": [
+    "Nagpur",
+    "Raipur"
+   ],
+   "is_fresher": true
+  },
+  "1135": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Customer Support & Success",
+   "cities": [
+    "Delhi"
+   ],
+   "is_fresher": false
+  },
+  "1143": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Finance & Accounting",
+   "cities": [
+    "Bengaluru"
+   ],
+   "is_fresher": true
+  },
+  "1158": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Operations",
+   "cities": [
+    "Thiruvananthapuram"
+   ],
+   "is_fresher": true
+  },
+  "1186": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Data & Analytics",
+   "cities": [
+    "Unspecified"
+   ],
+   "is_fresher": false
+  },
+  "1623": {
+   "model": "claude-haiku-5-5",
+   "prompt_version": "v2",
+   "role": "Core Engineering",
+   "cities": [
+    "Bengaluru"
+   ],
+   "is_fresher": false
+  }
+ }
+}

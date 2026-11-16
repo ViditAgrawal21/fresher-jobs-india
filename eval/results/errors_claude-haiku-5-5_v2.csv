@@ -1,6 +1,7 @@
 job_id,title,field,model,human,notes
 843,Cabochon Maker / Lapidary Operator,role,Core Engineering,Other,
-1010,Electrical Engineers,cities,Other,Ahmedabad,
+816,Metal Fabrication Helper,role,Operations,Core Engineering,
+1010,Electrical Engineers,cities,Gurugram,Ahmedabad,
 375,HiL Test Engineer,role,Software Engineering,Core Engineering,
 914,"Intern, InSight, Wardha",role,Operations,Data & Analytics,
 149,"Business Analyst, Marketing-1 (Fixed Term)",role,Marketing,Data & Analytics,
