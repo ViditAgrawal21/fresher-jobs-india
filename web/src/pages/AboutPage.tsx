@@ -56,7 +56,7 @@ export function AboutPage({ stats }: { stats: Stats | null }) {
           <Stat label="fresher roles live" value={t?.visible.toLocaleString("en-IN") ?? "–"} />
           <Stat label="posts collected (active)" value={t?.active.toLocaleString("en-IN") ?? "–"} />
           <Stat label="duplicates hidden" value={t?.duplicates.toLocaleString("en-IN") ?? "–"} />
-          <Stat label="not for freshers" value={t?.not_fresher.toLocaleString("en-IN") ?? "–"} hint="tagged, then hidden" />
+          <Stat label="not for freshers" value={t?.not_fresher.toLocaleString("en-IN") ?? "–"} hint={t ? `tagged, then hidden; plus ${t.outside_india} outside India` : undefined} />
         </div>
       </section>
 

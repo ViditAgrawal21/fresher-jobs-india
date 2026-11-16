@@ -123,26 +123,27 @@ def run(source_names: list[str], dry_run: bool = False, retag: bool = False, tag
             pending = db.jobs_to_tag(conn, limit=tag_limit)
 
         stats["tagged"], stats["llm_cost_usd"] = 0, 0.0
-        result, tagger = None, None
         if pending and not settings.anthropic_api_key:
             log.warning("ANTHROPIC_API_KEY not set: %d posts left untagged", len(pending))
             errors.append({"source": "tagger", "error": "ANTHROPIC_API_KEY not set"})
         elif pending:
             tagger = Tagger()
-            result = tagger.tag(pending)  # no DB connection held while waiting on the LLM
+
+            def save_batch(tags, call):
+                # Persist each batch as soon as it returns (short connection, with retries).
+                with db.connect() as conn:
+                    db.save_tags(conn, [(i, t.model_dump(exclude={"id"})) for i, t in tags.items()],
+                                 tagger.model, tagger.prompt_version)
+                    db.log_llm_call(conn, run_id=run_id, purpose="tagging", **vars(call))
+
+            result = tagger.tag(pending, on_batch=save_batch)  # no DB connection held while waiting
+            stats["tagged"] = len(result.tags)
+            stats["tag_failed"] = len(pending) - len(result.tags)
+            stats["llm_cost_usd"] = round(result.cost, 6)
+            if stats["tag_failed"]:
+                errors.append({"source": "tagger", "error": f"{stats['tag_failed']} posts left untagged"})
 
         with db.connect() as conn:
-            if result is not None:
-                db.save_tags(conn, [(i, t.model_dump(exclude={"id"})) for i, t in result.tags.items()],
-                             tagger.model, tagger.prompt_version)
-                for call in result.calls:
-                    db.log_llm_call(conn, run_id=run_id, purpose="tagging", **vars(call))
-                stats["tagged"] = len(result.tags)
-                stats["tag_failed"] = len(pending) - len(result.tags)
-                stats["llm_cost_usd"] = round(result.cost, 6)
-                if stats["tag_failed"]:
-                    errors.append({"source": "tagger", "error": f"{stats['tag_failed']} posts left untagged"})
-
             stats["expired"] = db.expire_stale(conn, healthy, settings.stale_after_days, settings.max_post_age_days)
             status = "ok" if not errors else ("partial" if healthy else "failed")
             db.finish_run(conn, run_id, status, stats, errors)

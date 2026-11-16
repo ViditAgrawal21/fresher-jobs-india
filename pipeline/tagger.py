@@ -13,6 +13,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 import anthropic
 
@@ -23,7 +24,7 @@ from core.taxonomy import CITY_VALUES, ROLES, UNSPECIFIED
 log = logging.getLogger(__name__)
 
 PROMPT_DIR = Path(__file__).parent / "prompts"
-DEFAULT_PROMPT_VERSION = "v1"
+DEFAULT_PROMPT_VERSION = "v2"  # v2 adds in_india (build log #8); v1 kept for comparison
 
 # USD per 1M tokens (input, output). Anthropic list prices, Nov 2026.
 PRICES = {
@@ -101,22 +102,29 @@ class Tagger:
         self.system_prompt = load_prompt(prompt_version)
         self.client = client or anthropic.Anthropic(api_key=s.anthropic_api_key or None, max_retries=4)
 
-    def tag(self, posts: list[dict]) -> TagResult:
+    def tag(self, posts: list[dict], on_batch: Callable[[dict[int, JobTags], CallLog], None] | None = None) -> TagResult:
+        """Tag posts in parallel batches. `on_batch` is called (in this thread, in order) as each
+        batch comes back, so the caller can save it immediately: if something fails later we lose
+        at most the batches still in flight, not every tag we already paid for."""
         result = TagResult()
+
+        def collect(tags: dict[int, JobTags], call: CallLog) -> None:
+            result.tags.update(tags)
+            result.calls.append(call)
+            if on_batch:
+                on_batch(tags, call)
+
         batches = [posts[i : i + self.batch_size] for i in range(0, len(posts), self.batch_size)]
         with ThreadPoolExecutor(self.workers) as pool:
             for tags, call in pool.map(self._call, batches):
-                result.tags.update(tags)
-                result.calls.append(call)
+                collect(tags, call)
 
         # Anything the model skipped or that failed gets one more try on its own.
         missing = [p for p in posts if p["id"] not in result.tags]
         if missing:
             log.warning("retrying %d posts one by one", len(missing))
             for post in missing:
-                tags, call = self._call([post])
-                result.tags.update(tags)
-                result.calls.append(call)
+                collect(*self._call([post]))
         return result
 
     def _call(self, batch: list[dict]) -> tuple[dict[int, JobTags], CallLog]:

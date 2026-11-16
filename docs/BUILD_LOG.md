@@ -59,3 +59,28 @@ Also found: SmartRecruiters returns an `experienceLevel` field, so `mid_senior_l
 **Cause:** the rule "hide posts older than 45 days" was written with aggregators in mind. Companies keep roles open for months on their own boards (one Greenhouse post was first published in 2020). If a company's board still lists the job, it's open.
 
 **Fix:** the age limit applies only to aggregators (Adzuna, Jooble), which keep listing filled jobs. Company-board posts expire only when they disappear from the board for 7 days.
+
+### 7. A DNS blip threw away every tag from a run (16 Nov)
+**Symptom:** the first run with Adzuna and the LLM switched on fetched 1,003 posts and made 45 tagging calls (all `200 OK`). Then it crashed with `failed to resolve host '...neon.tech': getaddrinfo failed` when opening the connection to save the results. Every tag was lost, and we'd already paid for them.
+
+**Cause:** two design mistakes that a flaky network exposed.
+- The tagger returned all results at the end, so they lived only in memory until one big save.
+- A connect failure wasn't retried, even though most connect failures are transient: DNS, Wi-Fi, Neon waking from scale-to-zero.
+
+**Fix:**
+- `db.connect()` retries transient `OperationalError`s 4 times with exponential backoff.
+- The tagger takes an `on_batch` callback, and the runner saves each batch of 20 (tags + its `llm_calls` cost row) the moment it comes back. A failure now loses at most the batches in flight, and a re-run only tags what's still untagged.
+
+**Lesson:** persist expensive work as soon as you have it. Paid API results should never live only in memory.
+
+### 8. Jobs abroad showed up as "India" (16 Nov)
+**Symptom:** after the first full tagged run (368 live posts), I spot-checked the `other_city` values the LLM had filled in. Among them were *Fort Mill*, *West LA* and *Belgrade*.
+- Jooble returned US jobs (a CT Tech in Fort Mill, South Carolina) with location `India`.
+- Adzuna had a West LA hostess job listed under `India`.
+- A recruiter's "Warehouse Worker" ad, filed under Hyderabad, was really an overseas placement in Serbia.
+
+**Cause:** the source's location field is not the truth; the description is. My India filter only reads the location field, so it can't catch these.
+
+**Fix:** a new tag, `in_india`, which is false when the work itself is abroad, with an overseas-placement example in the prompt. The site hides `in_india = false`. This is prompt **v2** (v1 stays in the repo), and every post was re-tagged with `--retag` for about $0.09.
+
+**Side finding:** the city tags were following the description over the location field when they disagree. "Picker Packer, Mumbai" was tagged Kolkata because the ad only mentions Kolkata. That's arguably right, and it's a case to watch in the hand-check.

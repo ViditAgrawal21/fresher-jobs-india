@@ -33,6 +33,7 @@ class JobTags(BaseModel):
     other_city: str | None = Field(default=None, description="Only when cities contains Other: the city name as written.")
     work_mode: Literal["onsite", "hybrid", "remote", "unknown"]
     job_type: Literal["internship", "full_time", "contract", "apprenticeship"]
+    in_india: bool = Field(description="False when the work itself is outside India, even if the listing says India.")
     is_fresher: bool = Field(description="True if a fresh graduate / student with 0-1 years of experience can apply.")
     confidence: Literal["high", "medium", "low"]
 

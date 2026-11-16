@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -13,12 +15,26 @@ from core.config import get_settings
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "db" / "schema.sql"
 
 
-def connect(url: str | None = None) -> psycopg.Connection:
+log = logging.getLogger(__name__)
+
+
+def connect(url: str | None = None, attempts: int = 4) -> psycopg.Connection:
+    """Open a connection, retrying transient failures (DNS blip, Neon waking from scale-to-zero).
+    A failed connect after the LLM step once threw away a whole run's tags (build log #7)."""
     url = url or get_settings().database_url
     if not url:
         raise RuntimeError("DATABASE_URL is not set (see .env.example)")
-    # prepare_threshold=None: Neon's pooled endpoint is PgBouncer (transaction mode).
-    return psycopg.connect(url, autocommit=True, row_factory=dict_row, connect_timeout=15, prepare_threshold=None)
+    for attempt in range(1, attempts + 1):
+        try:
+            # prepare_threshold=None: Neon's pooled endpoint is PgBouncer (transaction mode).
+            return psycopg.connect(url, autocommit=True, row_factory=dict_row, connect_timeout=15, prepare_threshold=None)
+        except psycopg.OperationalError as exc:
+            if attempt == attempts:
+                raise
+            wait = 2 ** attempt
+            log.warning("db connect failed (attempt %d/%d), retrying in %ds: %s", attempt, attempts, wait, str(exc).strip()[:120])
+            time.sleep(wait)
+    raise AssertionError("unreachable")
 
 
 def migrate() -> None:

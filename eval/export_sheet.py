@@ -63,7 +63,8 @@ def main() -> None:
             select id, title, company, tags->>'role' role, tags->'cities' cities, tags->>'job_type' job_type,
                    tags->>'work_mode' work_mode, source, url, coalesce(posted_at, first_seen_at)::date posted
             from jobs j
-            where is_active and duplicate_of is null and tags is not null and (tags->>'is_fresher')::boolean
+            where is_active and duplicate_of is null and tags is not null
+              and coalesce((tags->>'in_india')::boolean, true) and (tags->>'is_fresher')::boolean
             order by posted desc, id desc
             """
         ).fetchall()
@@ -113,6 +114,8 @@ def main() -> None:
             return f"duplicate of #{r['duplicate_of']}"
         if r["tags"] is None:
             return "not tagged yet"
+        if r["tags"].get("in_india") is False:
+            return "hidden: outside India"
         return "shown" if r["tags"]["is_fresher"] else "hidden: not for freshers"
 
     _sheet(wb, "All collected", ["id", "status", "source", "title", "company", "location (raw)", "role", "cities", "first seen", "url"],

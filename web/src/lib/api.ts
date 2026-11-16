@@ -41,7 +41,7 @@ export type EvalSummary = {
 };
 
 export type Stats = {
-  totals: { visible: number; active: number; duplicates: number; not_fresher: number; untagged: number; all_time: number };
+  totals: { visible: number; active: number; duplicates: number; not_fresher: number; outside_india: number; untagged: number; all_time: number };
   last_refresh: Run | null;
   runs: Run[];
   cost: { total_usd: number; posts_tagged: number; per_1000_posts_usd: number | null };

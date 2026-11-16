@@ -64,7 +64,8 @@ def main() -> None:
             """
             select id, source, title, company, location_raw, url, description, tags, tag_model, tag_prompt_version
             from jobs
-            where is_active and duplicate_of is null and tags is not null and (tags->>'is_fresher')::boolean
+            where is_active and duplicate_of is null and tags is not null
+              and coalesce((tags->>'in_india')::boolean, true) and (tags->>'is_fresher')::boolean
             order by id
             """
         ).fetchall()

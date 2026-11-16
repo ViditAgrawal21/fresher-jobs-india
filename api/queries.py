@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-# What the site shows: still live, not a copy of another post, tagged, and open to freshers.
+# What the site shows: still live, not a copy of another post, tagged, in India, open to freshers.
 VISIBLE = """
     j.is_active
     and j.duplicate_of is null
     and j.tags is not null
+    and coalesce((j.tags->>'in_india')::boolean, true)
     and (j.tags->>'is_fresher')::boolean
 """
 
@@ -63,6 +64,8 @@ select
     count(*) filter (where j.is_active and j.duplicate_of is not null)          as duplicates,
     count(*) filter (where j.is_active and j.duplicate_of is null and j.tags is not null
                      and not (j.tags->>'is_fresher')::boolean)                  as not_fresher,
+    count(*) filter (where j.is_active and j.duplicate_of is null and j.tags is not null
+                     and not coalesce((j.tags->>'in_india')::boolean, true))     as outside_india,
     count(*) filter (where j.is_active and j.duplicate_of is null and j.tags is null) as untagged,
     count(*)                                                                    as all_time
 from jobs j

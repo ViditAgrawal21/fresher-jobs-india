@@ -8,7 +8,7 @@ from pipeline.tagger import Tagger, cost_usd, load_prompt
 
 def _tags(id, role="Software Engineering", cities=("Bengaluru",)):
     return JobTags(id=id, role=role, cities=list(cities), work_mode="onsite",
-                   job_type="internship", is_fresher=True, confidence="high")
+                   job_type="internship", in_india=True, is_fresher=True, confidence="high")
 
 
 def _usage(inp=1000, out=200):
@@ -40,7 +40,7 @@ def posts(*ids):
 
 
 def test_prompt_template_renders():
-    prompt = load_prompt("v1")
+    prompt = load_prompt("v2")
     assert "Bengaluru" in prompt and "Software Engineering" in prompt
     assert "{" in prompt  # the JSON examples survived str.format
 
@@ -74,3 +74,14 @@ def test_empty_cities_become_unspecified_low_confidence():
 def test_cost_maths():
     # 1M input + 1M output on Haiku 5.5 = $0.10 + $0.50
     assert cost_usd("claude-haiku-5-5", _usage(1_000_000, 1_000_000)) == pytest.approx(0.60)
+
+
+def test_on_batch_sees_every_batch_including_retries():
+    def responder(ids):
+        return [_tags(i) for i in ids if i != 2] if len(ids) > 1 else [_tags(ids[0])]
+
+    tagger, _ = make_tagger(responder)
+    saved = []
+    result = tagger.tag(posts(1, 2, 3, 4), on_batch=lambda tags, call: saved.append(sorted(tags)))
+    assert saved == [[1, 3], [4], [2]]  # batch [1,2,3] minus the skipped 2, batch [4], then 2 retried alone
+    assert set(result.tags) == {1, 2, 3, 4}
