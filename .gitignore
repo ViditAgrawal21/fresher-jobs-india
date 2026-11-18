@@ -21,3 +21,6 @@ notes/
 
 # editor / agent local config
 .claude/
+
+# local submission bundle (copies + private script)
+submission/

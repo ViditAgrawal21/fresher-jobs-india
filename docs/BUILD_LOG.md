@@ -100,3 +100,17 @@ Also found: SmartRecruiters returns an `experienceLevel` field, so `mid_senior_l
 **Fix:** dropped Jooble from the daily run (still available with `--sources jooble`) and hid its 34 posts. At the same time, clicking a post now opens a **details page on our site** (description preview, tags, "also listed on", similar jobs); only "Apply" leaves for the original. A dead source link now costs the student one click, not the whole visit.
 
 **Lesson:** a source's value is what the student can actually open, not what the API returns. Click through your own links.
+
+### 11. `/api/stats` returned 500 after the site sat idle (18 Nov)
+**Symptom:** two days after launch, a check before submitting found `/api/stats` returning HTTP 500, while `/api/health` was fine. Cloud Run's logs showed `psycopg.OperationalError: consuming input failed: SSL connection has been closed unexpectedly`. It had also happened once on 16 Nov.
+
+**Cause:** the same root cause as #4, this time in the API instead of the pipeline. The API keeps a small connection pool. When nobody visits for a while, Neon scales the database to zero and closes those connections, but a warm Cloud Run instance still holds them. The first request after the quiet spell got a dead connection.
+
+**Fix:**
+- The pool validates a connection before handing it out (`check=ConnectionPool.check_connection`).
+- Idle connections are closed after 2 minutes (`max_idle=120`), before Neon would drop them.
+- Each query retries once on `OperationalError`.
+
+Verified by killing the pool's connections underneath it: both endpoints still returned 200.
+
+**Lesson:** any long-lived process talking to serverless Postgres needs connection checks. Fixing it in the batch job (#4) wasn't enough.

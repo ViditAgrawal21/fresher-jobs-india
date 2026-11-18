@@ -9,6 +9,7 @@ from typing import Annotated, Literal
 from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from psycopg import OperationalError
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
@@ -31,6 +32,10 @@ async def lifespan(app: FastAPI):
         get_settings().database_url,
         min_size=1,
         max_size=4,
+        # Neon scales to zero after ~5 idle minutes and drops open connections, so a pooled
+        # connection can be dead by the time the next visitor arrives (build log #11):
+        check=ConnectionPool.check_connection,  # validate before handing a connection out
+        max_idle=120,  # and don't keep spare connections around long enough to go stale
         # Neon's pooled endpoint is PgBouncer in transaction mode -> no server-side prepared statements.
         kwargs={"row_factory": dict_row, "autocommit": True, "prepare_threshold": None},
         open=True,
@@ -43,8 +48,16 @@ app = FastAPI(title="Fresher Jobs India", lifespan=lifespan, docs_url="/api/docs
 
 
 def _fetch(sql: str, params: dict | None = None) -> list[dict]:
-    with pool.connection() as conn:
-        return conn.execute(sql, params or {}).fetchall()
+    # One retry: if the connection died mid-query, the pool discards it and the retry gets a fresh one.
+    for attempt in (1, 2):
+        try:
+            with pool.connection() as conn:
+                return conn.execute(sql, params or {}).fetchall()
+        except OperationalError:
+            if attempt == 2:
+                raise
+            log.warning("db connection dropped, retrying once")
+    raise AssertionError("unreachable")
 
 
 @app.get("/api/health")  # not /healthz: Cloud Run reserves paths ending in "z" (build log #9)
