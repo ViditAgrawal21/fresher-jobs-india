@@ -36,3 +36,13 @@ def looks_senior(title: str) -> bool:
     if _ENTRY_RE.search(title):
         return False
     return bool(_SENIOR_RE.search(title))
+
+
+# Placeholder listings that some employers' test accounts leave on aggregators
+# ("demo" by company "Test" was in the hand-checked sample; build log #12).
+_PLACEHOLDER = {"demo", "test", "testing", "sample", "dummy", "test job", "test post", "test company", "na", "n/a"}
+
+
+def is_placeholder_post(title: str, company: str) -> bool:
+    t, c = (title or "").strip().lower(), (company or "").strip().lower()
+    return t in _PLACEHOLDER or c in _PLACEHOLDER

@@ -114,3 +114,15 @@ Also found: SmartRecruiters returns an `experienceLevel` field, so `mid_senior_l
 Verified by killing the pool's connections underneath it: both endpoints still returned 200.
 
 **Lesson:** any long-lived process talking to serverless Postgres needs connection checks. Fixing it in the batch job (#4) wasn't enough.
+
+### 12. The hand-check found a fake job: "demo" by "Test" (18 Nov)
+**Symptom:** reviewing the 50 sampled posts by hand, one was titled `demo` from a company called `Test`, a placeholder listing on Adzuna with generic filler text. It was live on the site, tagged like a real "Sales & Business Development" job open to freshers. The same "Test" company had 7 such posts live ("demo", "demog", "demoo-n", "dem").
+
+**Cause:** nothing in the pipeline asked "is this a real job?". The rules check India and seniority; the LLM was asked to categorize, not to reject. Both the production model and the reference model tagged it confidently, because its filler text reads like a real sales role.
+
+**Fix:**
+- A rule drops posts whose title or company is a placeholder word (`demo`, `test`, `sample`, `dummy`...), with a regression test that "Test Engineer at Bosch" is *not* dropped.
+- All 7 were hidden; the company-name check is what caught the misspelled variants.
+- In the eval it's scored as "shouldn't have been shown" (it lowers precision of what the site shows to 92%), not as a role/city error.
+
+**Lesson:** this is exactly what a hand-check is for. Neither model nor any counter flagged it; a person reading the post did.

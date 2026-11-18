@@ -1,71 +1,77 @@
 {
   "model": "claude-haiku-5-5",
   "prompt_version": "v2",
-  "n": 50,
-  "role_accuracy": 0.84,
-  "city_accuracy": 0.96,
-  "both_accuracy": 0.82,
-  "fresher_precision": 0.94,
+  "n": 49,
+  "sampled": 50,
+  "not_a_job": 1,
+  "role_accuracy": 0.837,
+  "city_accuracy": 0.959,
+  "both_accuracy": 0.816,
+  "fresher_precision": 0.92,
   "role_ci": [
-    0.715,
-    0.917
+    0.71,
+    0.915
   ],
   "city_ci": [
-    0.865,
+    0.863,
     0.989
   ],
   "both_ci": [
-    0.692,
-    0.902
+    0.686,
+    0.9
   ],
   "labels": {
-    "source": "Claude Opus 5.5 draft, not yet reviewed by hand",
-    "reviewed": 0,
-    "corrected": 0
+    "source": "Claude Opus 5.5 draft, every row reviewed by hand (1 corrected)",
+    "reviewed": 50,
+    "corrected": 1
   },
-  "scored_at": "2026-11-16T13:52:18+00:00",
+  "scored_at": "2026-11-18T09:09:08+00:00",
   "compare": [
     {
       "model": "claude-sonnet-5-5",
       "prompt_version": "v2",
-      "n": 50,
-      "role_accuracy": 0.9,
-      "city_accuracy": 0.96,
-      "both_accuracy": 0.86,
-      "fresher_precision": 1.0,
+      "n": 49,
+      "sampled": 50,
+      "not_a_job": 1,
+      "role_accuracy": 0.898,
+      "city_accuracy": 0.959,
+      "both_accuracy": 0.857,
+      "fresher_precision": 0.978,
       "role_ci": [
-        0.786,
-        0.957
+        0.782,
+        0.956
       ],
       "city_ci": [
-        0.865,
+        0.863,
         0.989
       ],
       "both_ci": [
-        0.738,
-        0.93
+        0.733,
+        0.929
       ],
       "cost_per_1000_usd": 2.0188
     },
     {
       "model": "claude-haiku-5-5",
       "prompt_version": "v2",
-      "n": 50,
-      "role_accuracy": 0.88,
-      "city_accuracy": 0.96,
-      "both_accuracy": 0.84,
-      "fresher_precision": 1.0,
+      "n": 49,
+      "sampled": 50,
+      "not_a_job": 1,
+      "role_accuracy": 0.878,
+      "city_accuracy": 0.959,
+      "both_accuracy": 0.837,
+      "fresher_precision": 0.975,
       "role_ci": [
-        0.762,
-        0.944
+        0.758,
+        0.943
       ],
       "city_ci": [
-        0.865,
+        0.863,
         0.989
       ],
       "both_ci": [
-        0.715,
-        0.917
+        0.71,
+        0.915
       ],
       "cost_per_1000_usd": 0.0721
     }

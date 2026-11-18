@@ -64,14 +64,17 @@ def _review_rows(rows: list[dict]) -> dict[int, dict]:
         fixed_role = str(r.get("Fixed role") or "").strip()
         fixed_cities = str(r.get("Fixed cities") or "").strip()
         fixed_fresher = _bool(r.get("Fixed is_fresher"))
+        notes = str(r.get("notes") or "")
         labels[int(r["job_id"])] = {
             "title": r.get("title", ""),
             "role": fixed_role or str(r.get("draft role") or "").strip(),
             "cities": city_set(fixed_cities or str(r.get("draft cities") or "")),
             "is_fresher": fixed_fresher if fixed_fresher is not None else _bool(r.get("draft is_fresher")),
-            "notes": r.get("notes") or "",
+            "notes": notes,
             "reviewed": verdict in ("Y", "N"),
             "corrected": verdict == "N",
+            # A test/spam listing has no true role or city; it's scored only as "shouldn't be shown".
+            "not_a_job": notes.strip().lower().startswith("[not a job]"),
         }
     return labels
 
@@ -117,15 +120,21 @@ def load_frozen_predictions() -> dict[int, dict]:
 
 
 def score(preds: dict[int, dict], labels: dict[int, dict]) -> tuple[dict, list[dict]]:
-    ids = [i for i in labels if i in preds]
+    all_ids = [i for i in labels if i in preds]
+    junk = [i for i in all_ids if labels[i].get("not_a_job")]
+    ids = [i for i in all_ids if i not in junk]  # role/city only make sense for real jobs
     n = len(ids)
     role_ok = sum(preds[i]["role"] == labels[i]["role"] for i in ids)
     city_ok = sum(preds[i]["cities"] == labels[i]["cities"] for i in ids)
     both_ok = sum(preds[i]["role"] == labels[i]["role"] and preds[i]["cities"] == labels[i]["cities"] for i in ids)
-    said_fresher = [i for i in ids if preds[i]["is_fresher"] and labels[i]["is_fresher"] is not None]
-    fresher_ok = sum(labels[i]["is_fresher"] for i in said_fresher)
+    # Precision of what the site shows: a junk post shown as a fresher job counts as wrong.
+    said_fresher = [i for i in all_ids if preds[i]["is_fresher"] and (labels[i]["is_fresher"] is not None or i in junk)]
+    fresher_ok = sum(bool(labels[i]["is_fresher"]) and i not in junk for i in said_fresher)
 
-    errors = []
+    errors = [
+        {"job_id": i, "title": labels[i]["title"], "field": "not a real job", "model": "shown", "human": "should be hidden", "notes": labels[i]["notes"]}
+        for i in junk if preds[i]["is_fresher"]
+    ]
     for i in ids:
         p, l = preds[i], labels[i]
         if p["role"] != l["role"]:
@@ -138,6 +147,8 @@ def score(preds: dict[int, dict], labels: dict[int, dict]) -> tuple[dict, list[d
 
     metrics = {
         "n": n,
+        "sampled": len(all_ids),
+        "not_a_job": len(junk),
         "role_accuracy": round(role_ok / n, 3) if n else 0,
         "city_accuracy": round(city_ok / n, 3) if n else 0,
         "both_accuracy": round(both_ok / n, 3) if n else 0,

@@ -1,4 +1,5 @@
 job_id,title,field,model,human,notes
+1022,demo,not a real job,shown,should be hidden,"[not a job] Test listing on Adzuna: title 'demo', company 'Test', generic filler text. Should never be shown."
 843,Cabochon Maker / Lapidary Operator,role,Core Engineering,Other,
 816,Metal Fabrication Helper,role,Operations,Core Engineering,
 1010,Electrical Engineers,cities,Gurugram,Ahmedabad,

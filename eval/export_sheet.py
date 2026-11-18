@@ -136,23 +136,41 @@ def main() -> None:
         for job_id, l in labels.items():
             p = preds.get(job_id, {})
             p_cities = set(filter(None, p.get("cities", "").split(";")))
-            rows.append([job_id, l["title"], l["role"], p.get("role"), "✓" if l["role"] == p.get("role") else "✗",
-                         "; ".join(sorted(l["cities"])), "; ".join(sorted(p_cities)), "✓" if set(l["cities"]) == p_cities else "✗",
+            if l.get("not_a_job"):
+                check, role_ok, city_ok = "not a real job", "n/a", "n/a"
+            else:
+                check = ("✓ draft correct" if not l.get("corrected") else "✎ corrected") if l.get("reviewed") else "not reviewed"
+                role_ok = "✓" if l["role"] == p.get("role") else "✗"
+                city_ok = "✓" if set(l["cities"]) == p_cities else "✗"
+            rows.append([job_id, l["title"], check, l["role"], p.get("role"), role_ok,
+                         "; ".join(sorted(l["cities"])), "; ".join(sorted(p_cities)), city_ok,
                          l["is_fresher"], p.get("is_fresher"), l["notes"]])
-        _sheet(wb, "Eval 50", ["job_id", "title", "reference role", "model role", "role ok", "reference cities", "model cities", "city ok",
-                               "reference is_fresher", "model is_fresher", "notes"], rows, [8, 40, 24, 24, 8, 24, 24, 8, 12, 14, 40])
+        _sheet(wb, "Eval 50", ["job_id", "title", "my check", "correct role", "model role", "role ok", "correct cities", "model cities",
+                               "city ok", "correct is_fresher", "model is_fresher", "notes"],
+               rows, [8, 40, 16, 24, 24, 8, 22, 22, 8, 12, 12, 50])
 
     summary_path = RESULTS / "summary.json"
     if summary_path.exists():
         s = json.loads(summary_path.read_text(encoding="utf-8"))
-        rows = [[s["model"], s["prompt_version"], s["n"], s["role_accuracy"], f"{s['role_ci'][0]}–{s['role_ci'][1]}",
-                 s["city_accuracy"], f"{s['city_ci'][0]}–{s['city_ci'][1]}", s["both_accuracy"], s.get("fresher_precision"), "production tags"]]
+        ci = lambda pair: f"{round(pair[0] * 100)}–{round(pair[1] * 100)}%"
+        rows = [[s["model"], s["prompt_version"], s["n"], s["role_accuracy"], ci(s["role_ci"]),
+                 s["city_accuracy"], ci(s["city_ci"]), s["both_accuracy"], s.get("fresher_precision"), "production tags (live site)"]]
         for c in s.get("compare", []):
-            rows.append([c["model"], c["prompt_version"], c["n"], c["role_accuracy"], f"{c['role_ci'][0]}–{c['role_ci'][1]}",
-                         c["city_accuracy"], f"{c['city_ci'][0]}–{c['city_ci'][1]}", c["both_accuracy"], c.get("fresher_precision"),
-                         f"re-tagged, ${c['cost_per_1000_usd']} per 1,000 posts"])
-        _sheet(wb, "Accuracy", ["model", "prompt", "n", "role acc", "role 95% CI", "city acc", "city 95% CI", "both", "fresher precision", "note"],
-               rows, [22, 8, 5, 9, 13, 9, 13, 8, 15, 36])
+            rows.append([c["model"], c["prompt_version"], c["n"], c["role_accuracy"], ci(c["role_ci"]),
+                         c["city_accuracy"], ci(c["city_ci"]), c["both_accuracy"], c.get("fresher_precision"),
+                         f"re-run on the same posts, ${c['cost_per_1000_usd']:.3f} per 1,000 posts"])
+        ws = _sheet(wb, "Accuracy", ["model", "prompt", "real jobs scored", "role acc", "role 95% CI", "city acc", "city 95% CI", "both right",
+                                     "shown posts that are real fresher jobs", "note"],
+                    rows, [22, 8, 15, 10, 13, 10, 13, 11, 22, 44])
+        for row in ws.iter_rows(min_row=2):
+            for idx in (3, 5, 7, 8):  # accuracy columns as percentages
+                if isinstance(row[idx].value, (int, float)):
+                    row[idx].number_format = "0%"
+        labels_info = s.get("labels", {})
+        ws.append([])
+        ws.append([f"Labels: {labels_info.get('source', '')}. {s.get('sampled', s['n'])} posts sampled, "
+                   f"{s.get('not_a_job', 0)} turned out not to be a real job (scored only as 'shouldn't be shown')."])
+        ws.append(["With ~50 posts, one post is ~2 points; the same model re-run scored differently, so small gaps between models are noise."])
 
     cost_rows = []
     for r in cost:

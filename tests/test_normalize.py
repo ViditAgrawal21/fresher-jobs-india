@@ -80,3 +80,11 @@ def test_clean_title_strips_ats_prefixes():
     assert clean_title("Embedded_C++ Developer_EBH") == "Embedded C++ Developer EBH"
     assert clean_title("QA_Automation Engineer") == "QA Automation Engineer"
     assert clean_title("Data Analyst Intern") == "Data Analyst Intern"
+
+
+def test_placeholder_posts_are_dropped():
+    from pipeline.filters import is_placeholder_post
+    assert is_placeholder_post("demo", "Test")  # the one found in the hand-check
+    assert is_placeholder_post("Sales Executive", "test")
+    assert not is_placeholder_post("Test Engineer", "Bosch")  # a real job title with "test" in it
+    assert not is_placeholder_post("Demo Engineer", "Acme")

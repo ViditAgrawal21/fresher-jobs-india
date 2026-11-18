@@ -22,6 +22,7 @@ from core import db
 from core.config import get_settings
 from core.models import RawPost
 from pipeline import dedup
+from pipeline.filters import is_placeholder_post
 from pipeline.normalize import to_row
 from pipeline.sources.aggregators import AdzunaSource, JoobleSource
 from pipeline.sources.base import Source, make_client
@@ -108,6 +109,9 @@ def run(source_names: list[str], dry_run: bool = False, retag: bool = False, tag
     log.info("run %d started", run_id)
 
     posts, stats, errors, healthy = fetch_all(build_sources(source_names, http, known_sr))
+    real = [p for p in posts if not is_placeholder_post(p.title, p.company)]
+    stats["dropped.placeholder"] = len(posts) - len(real)
+    posts = real
 
     try:
         with db.connect() as conn:
