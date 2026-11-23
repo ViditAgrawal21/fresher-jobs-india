@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from "react";
+import { Analytics } from "@vercel/analytics/react";
 import { Layout, restoreScroll } from "./components/Layout";
 import { fetchStats, type Stats } from "./lib/api";
 import { AboutPage } from "./pages/AboutPage";
@@ -31,21 +32,24 @@ export default function App() {
   }, [path]);
 
   return (
-    <Layout path={path}>
-      {/* The list stays mounted while a job is open, so going back keeps its results and "show more" pages. */}
-      <div hidden={path !== "/"}>
-        <JobsPage stats={stats} />
-      </div>
-      {jobId && <JobPage key={jobId} id={Number(jobId)} />}
-      {path === "/about" && <AboutPage stats={stats} />}
-      {path !== "/" && !jobId && path !== "/about" && (
-        <div className="py-16 text-center">
-          <p className="font-medium">Page not found</p>
-          <a href="/" className="mt-2 inline-block text-sm text-teal-700 underline">
-            Back to all jobs
-          </a>
+    <>
+      <Layout path={path}>
+        {/* The list stays mounted while a job is open, so going back keeps its results and "show more" pages. */}
+        <div hidden={path !== "/"}>
+          <JobsPage stats={stats} />
         </div>
-      )}
-    </Layout>
+        {jobId && <JobPage key={jobId} id={Number(jobId)} />}
+        {path === "/about" && <AboutPage stats={stats} />}
+        {path !== "/" && !jobId && path !== "/about" && (
+          <div className="py-16 text-center">
+            <p className="font-medium">Page not found</p>
+            <a href="/" className="mt-2 inline-block text-sm text-teal-700 underline">
+              Back to all jobs
+            </a>
+          </div>
+        )}
+      </Layout>
+      <Analytics />
+    </>
   );
 }
