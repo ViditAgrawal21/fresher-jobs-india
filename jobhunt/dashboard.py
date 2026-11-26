@@ -118,10 +118,12 @@ def build_data(settings: JobhuntSettings, today: date | None = None) -> dict:
     }
 
 
-def render(data: dict) -> str:
+def render(data: dict, artifact: bool = False) -> str:
+    """The page. `artifact=True` leaves out the html/head/body skeleton and the theme button,
+    for hosts that wrap the page themselves and own the theme (a claude.ai artifact)."""
     # JSON inside <script>: escape "<" so no string in the data can close the tag.
     payload = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")
-    return _env.get_template("dashboard.html.j2").render(data_json=Markup(payload), name=data["name"])
+    return _env.get_template("dashboard.html.j2").render(data_json=Markup(payload), name=data["name"], artifact=artifact)
 
 
 def write_dashboard(settings: JobhuntSettings) -> Path:
