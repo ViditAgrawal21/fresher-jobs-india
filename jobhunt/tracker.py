@@ -59,6 +59,9 @@ APP_COLUMNS = [
     ("Exp Required", 11, "exp_required"),
     ("CTC Range (LPA)", 12, "ctc"),
     ("Fit Score", 8, "fit"),
+    ("Match %", 8, "match"),
+    ("Matched Keywords", 30, "matched"),
+    ("Missing Keywords", 24, "missing"),
     ("Resume File", 34, "resume"),
     ("Status", 13, "status"),
     ("Date Applied", 12, "date_applied"),
@@ -122,6 +125,15 @@ TARGETS = [
     ("Observe.AI", "AI-first", "LLM products for contact centres", "https://boards.greenhouse.io/observeai", "feed"),
     ("Druva", "SaaS, GCC-style", "Backend and cloud", "https://boards.greenhouse.io/druva", "feed"),
     ("Sigmoid", "Data engineering", "Data and backend roles", "https://boards.greenhouse.io/sigmoid", "feed"),
+    ("Paytm", "Fintech, product", "190 India openings when probed", "https://jobs.lever.co/paytm", "feed"),
+    ("MongoDB", "Databases, GCC", "Backend and cloud roles in Gurugram/Bengaluru", "https://boards.greenhouse.io/mongodb", "feed"),
+    ("Databricks", "Data + AI, GCC", "High pay; backend and platform", "https://boards.greenhouse.io/databricks", "feed"),
+    ("Hevo Data", "Data SaaS", "Backend and data engineering", "https://jobs.lever.co/hevodata", "feed"),
+    ("InMobi", "Adtech, product", "Backend at scale", "https://boards.greenhouse.io/inmobi", "feed"),
+    ("Mindtickle", "SaaS", "Full stack and backend", "https://jobs.lever.co/mindtickle", "feed"),
+    ("Twilio", "Communications, GCC", "Backend and platform", "https://boards.greenhouse.io/twilio", "feed"),
+    ("FamPay", "Fintech", "Mobile and backend", "https://jobs.lever.co/fampay", "feed"),
+    ("Truecaller", "Consumer", "Mobile and backend", "https://boards.greenhouse.io/truecaller", "feed"),
     ("Postman", "Dev tools", "Node.js-heavy product company", "", ""),
     ("BrowserStack", "Dev tools", "Full stack, Node.js", "", ""),
     ("Freshworks", "SaaS", "Full stack and backend", "", ""),
@@ -152,8 +164,8 @@ def _list_validation(ws, values, col_letter, first=2, last=FORMULA_ROWS + 1, sou
     ws.add_data_validation(dv)
 
 
-def _app_formulas(r: int) -> dict[str, str]:
-    st, applied, mail = (f"{get_column_letter(COL[k])}{r}" for k in ("status", "date_applied", "email_received"))
+def _app_formulas(r: int, col: dict[str, int] = COL) -> dict[str, str]:
+    st, applied, mail = (f"{get_column_letter(col[k])}{r}" for k in ("status", "date_applied", "email_received"))
     return {
         "days_since": f'=IF({applied}="","",TODAY()-{applied})',
         "followup": (f'=IF(AND(OR({st}="Applied",{st}="Viewed"),{applied}<>"",TODAY()-{applied}>=Lists!$E$2,'
@@ -371,7 +383,7 @@ def _how_to(ws) -> None:
         ("", ""),
         ("Columns you fill in", "Status (after you submit: Applied), Date Applied, Applied With (email), Referral, Next Step, "
                                 "Next Step Date, Recruiter / Contact, Notes, CTC Range."),
-        ("Filled automatically", "ID, Date Added, Company, Role, Track, Job URL, Fit Score, Resume File (by `apply`); "
+        ("Filled automatically", "ID, Date Added, Company, Role, Track, Job URL, Fit Score, Match %, Matched/Missing Keywords, Resume File (by `apply`); "
                                  "Email Received?, Last Email Date/From/Subject, Email Signal and Status upgrades (by `sync-mail`)."),
         ("Formulas, don't type", "Days Since Applied, Follow-up (shows 'Follow up' after 7 days with no email)."),
         ("", ""),
@@ -393,7 +405,8 @@ def _how_to(ws) -> None:
     example = {
         "id": "A001", "date_added": date(2026, 12, 8), "company": "Example Fintech", "role": "SDE 2 - Backend (Node.js)",
         "track": "Backend", "location": "Bengaluru", "work_mode": "Hybrid", "source": "LinkedIn",
-        "url": "https://example.com/jobs/123", "exp_required": "2+ years", "ctc": "14-20", "fit": 78,
+        "url": "https://example.com/jobs/123", "exp_required": "2+ years", "ctc": "14-20", "fit": 78, "match": 75,
+        "matched": "Node.js, TypeScript, NestJS, PostgreSQL, Redis, AWS", "missing": "Kafka, GraphQL",
         "resume": "applications/A001_example-fintech_sde-2-backend/Vidit_Agrawal_Resume.pdf", "status": "Interviewing",
         "date_applied": date(2026, 12, 8), "applied_with": "you@gmail.com", "referral": "Priya (ex-PCCOE)",
         "email_received": "Yes", "last_email_date": date(2026, 12, 15), "last_email_from": "talent@example.com",
@@ -445,6 +458,29 @@ class Tracker:
         self.apps = self.wb["Applications"]
         self.leads = self.wb["Leads"]
         self.mail = self.wb["Email Log"]
+        self.col = self._column_map()
+
+    def _column_map(self) -> dict[str, int]:
+        """Columns found by header name, so moving columns in Excel doesn't break anything.
+        Columns added in newer versions are appended to older workbooks."""
+        by_header = {name: key for name, _, key in APP_COLUMNS}
+        col: dict[str, int] = {}
+        last = 0
+        for c in range(1, self.apps.max_column + 1):
+            header = self.apps.cell(row=1, column=c).value
+            if header:
+                last = c
+                if header in by_header:
+                    col[by_header[header]] = c
+        for name, width, key in APP_COLUMNS:
+            if key not in col:
+                last += 1
+                h = self.apps.cell(row=1, column=last, value=name)
+                h.font, h.fill = HEADER_FONT, HEADER_FILL
+                h.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                self.apps.column_dimensions[get_column_letter(last)].width = width
+                col[key] = last
+        return col
 
     def save(self) -> None:
         _save(self.wb, self.path)
@@ -453,10 +489,10 @@ class Tracker:
     def applications(self) -> list[AppRow]:
         out = []
         for r in range(2, self.apps.max_row + 1):
-            company = self.apps.cell(row=r, column=COL["company"]).value
+            company = self.apps.cell(row=r, column=self.col["company"]).value
             if not company:
                 continue
-            values = {key: self.apps.cell(row=r, column=COL[key]).value for _, _, key in APP_COLUMNS
+            values = {key: self.apps.cell(row=r, column=self.col[key]).value for _, _, key in APP_COLUMNS
                       if key not in FORMULA_KEYS}
             out.append(AppRow(r, values))
         return out
@@ -467,7 +503,7 @@ class Tracker:
 
     def _first_empty_row(self) -> int:
         r = 2
-        while self.apps.cell(row=r, column=COL["company"]).value:
+        while self.apps.cell(row=r, column=self.col["company"]).value:
             r += 1
         return r
 
@@ -482,12 +518,12 @@ class Tracker:
         values.setdefault("date_added", date.today())
         values.setdefault("status", "Tailored")
         values.setdefault("email_received", "No")
-        self.apps.cell(row=r, column=COL["id"], value=app_id).font = BODY_FONT
+        self.apps.cell(row=r, column=self.col["id"], value=app_id).font = BODY_FONT
         for key, v in values.items():
             self._set(r, key, v)
-        for key, formula in _app_formulas(r).items():  # rows past the pre-filled block
-            if self.apps.cell(row=r, column=COL[key]).value is None:
-                self.apps.cell(row=r, column=COL[key], value=formula).font = BODY_FONT
+        for key, formula in _app_formulas(r, self.col).items():  # rows past the pre-filled block
+            if self.apps.cell(row=r, column=self.col[key]).value is None:
+                self.apps.cell(row=r, column=self.col[key], value=formula).font = BODY_FONT
         return app_id
 
     def update(self, app_id: str, **values) -> AppRow:
@@ -504,11 +540,11 @@ class Tracker:
         self._set(app.row, "notes", f"{old}\n{note}".strip())
 
     def _set(self, r: int, key: str, v) -> None:
-        if key not in COL or key in FORMULA_KEYS:
+        if key not in self.col or key in FORMULA_KEYS:
             raise KeyError(f"unknown or formula column {key!r}")
         if isinstance(v, datetime):
             v = v.date()
-        c = self.apps.cell(row=r, column=COL[key], value=v)
+        c = self.apps.cell(row=r, column=self.col[key], value=v)
         c.font = BODY_FONT
         if key in DATE_KEYS:
             c.number_format = DATE_FMT

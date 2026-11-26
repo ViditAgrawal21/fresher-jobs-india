@@ -89,7 +89,7 @@ def test_guard_reverts_invented_tech_and_numbers():
                                             text="Led a team of 5 building Urdu India and MyDwarpal on Kafka.")
     t.summary = "Backend engineer with 3+ years of experience on Kafka and Kubernetes."
     doc, warnings = apply_tailoring(PROFILE, t, ["+91 0000000000", "me@example.com"])
-    original = PROFILE.job("sakalya").bullets[0].text
+    original = next(b.text for b in PROFILE.job("sakalya").bullets if b.id == "sakalya-lead")
     assert doc.experience[0].bullets[0] == original
     assert doc.summary == PROFILE.track_summary("backend")
     assert any("summary reverted" in w for w in warnings)
@@ -169,3 +169,22 @@ def test_llm_failure_falls_back_to_offline(monkeypatch):
 def test_fit_model_roundtrips_as_json():
     t = _tailoring(fit=Fit(score=70, verdict="good", years_required="2+ years", matched=[], gaps=[], red_flags=[]))
     assert Tailoring.model_validate_json(t.model_dump_json()) == t
+
+
+def test_follow_up_bullet_stays_after_its_parent():
+    from jobhunt.profile import job_entry
+    job = PROFILE.job("freelance")
+    entry = job_entry(job, ["freelance-crm-ai", "freelance-fasal", "freelance-crm"])
+    assert entry.bullet_ids == ["freelance-fasal", "freelance-crm", "freelance-crm-ai"]
+
+
+def test_domain_words_are_listed_but_do_not_score():
+    from jobhunt.tailor import keyword_coverage
+    cov = keyword_coverage(PROFILE, "We build payments and multi-tenant SaaS with Node.js, Kafka and Go developer roles.")
+    assert "Payments" in cov["matched"]
+    assert cov["coverage_pct"] == 33  # Node.js of {Node.js, Kafka, Go}
+
+
+def test_ai_posting_leads_with_the_llm_project():
+    t = offline_tailor(PROFILE, AI_JD, "Acme", "AI Engineer")
+    assert t.projects[0].id == "fji"

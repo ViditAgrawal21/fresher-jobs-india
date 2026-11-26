@@ -73,6 +73,19 @@ _RECRUITING_SENDER = re.compile(
     r"|careers?|talent|recruit|hiring|\bhr\b|jobs?@|people@",
     re.I,
 )
+# Job portals and auto-apply tools whose "application sent / received" emails create a row.
+_PORTAL = re.compile(r"linkedin|naukri|instahyre|wellfound|cutshort|hirist|foundit|iimjobs|indeed|aperture", re.I)
+_ATS = re.compile(r"greenhouse|lever\.co|ashbyhq|smartrecruiters|workday|icims|bamboohr|zohorecruit|keka|darwinbox", re.I)
+_APPLIED_TO = [
+    re.compile(r"application (?:was |has been )?sent to (?P<company>[^,.!?|\n]{2,60})", re.I),
+    re.compile(r"(?i:you|you've|you have) applied (?i:to|at|for) (?:the )?(?P<role>[^,.!?|\n]{3,80}?) (?:role |position )?at "
+               r"(?P<company>[A-Z][^,.!?|\n]{1,60})"),
+    re.compile(r"(?i:application) for (?:the )?(?P<role>[^,.!?|\n]{3,80}?) (?:role |position )?at (?P<company>[A-Z][^,.!?|\n]{1,60})"),
+    re.compile(r"(?i:applying|applied|application) (?:to|at|with) (?P<company>[A-Z][^,.!?|\n]{1,60})"),
+]
+_SENDER_NOISE = re.compile(r"\b(?:careers?|hiring|talent|recruiting|recruitment|team|jobs|hr|people|no-?reply|notifications?)\b",
+                           re.I)
+
 _COMPANY_NOISE = re.compile(
     r"\b(?:pvt|private|ltd|limited|inc|llc|llp|corp|corporation|technologies|technology|tech|software|solutions"
     r"|services|labs|india|group|co)\b\.?",
@@ -106,6 +119,7 @@ class SyncReport:
     conflicts: list[Change] = field(default_factory=list)
     unmatched: list[MailItem] = field(default_factory=list)
     ambiguous: list[tuple[MailItem, list[str]]] = field(default_factory=list)
+    added: list[tuple[MailItem, dict]] = field(default_factory=list)
 
 
 # ---------- matching and classification ----------
@@ -185,9 +199,39 @@ def next_status(current: str | None, signal: str) -> tuple[str | None, str]:
     return None, ""
 
 
+# ---------- new applications from confirmation emails ----------
+
+def application_from_email(mail: MailItem) -> dict | None:
+    """Company / role / source for an "application sent / received" email about an untracked job.
+
+    Covers jobs sent through LinkedIn, Naukri, Aperture or a company's ATS that were never
+    run through `apply`, so the tracker still counts every application. Conservative:
+    returns None unless a company name can be read from the subject or opening line.
+    """
+    name, addr = parseaddr(mail.sender)
+    text = f"{mail.subject}\n{mail.body[:400]}"
+    company = role = ""
+    for rx in _APPLIED_TO:
+        if m := rx.search(text):
+            company = m.group("company").strip(" -:'\"")
+            role = (m.groupdict().get("role") or "").strip(" -:'\"")
+            break
+    if not company and _ATS.search(addr):
+        company = _SENDER_NOISE.sub(" ", name).strip(" -:,")  # "Razorpay Hiring Team" -> "Razorpay"
+    company = re.sub(r"\s+(?:and|for|via|on)\s.*$", "", company)
+    company = re.sub(r"\s+", " ", company).strip()
+    if not company or len(company) > 50 or company.lower() in {"us", "our team", "the company", "you"}:
+        return None
+    portal = _PORTAL.search(mail.sender)
+    source = portal.group(0).capitalize() if portal else ("Company site" if _ATS.search(addr) else "Email / cold")
+    source = {"Linkedin": "LinkedIn", "Aperture": "Other"}.get(source, source)
+    return {"company": company, "role": role or "(role not in email)", "source": source}
+
+
 # ---------- applying to the tracker ----------
 
-def process(tracker: Tracker, mails: list[MailItem], *, my_address: str = "", dry_run: bool = False) -> SyncReport:
+def process(tracker: Tracker, mails: list[MailItem], *, my_address: str = "", dry_run: bool = False,
+            auto_add: bool = True) -> SyncReport:
     report = SyncReport()
     apps = [a for a in tracker.applications() if a["status"] not in ("Lead",)]
     my_address = my_address.lower()
@@ -197,7 +241,21 @@ def process(tracker: Tracker, mails: list[MailItem], *, my_address: str = "", dr
         app, companies = match_application(mail, apps)
         signal = classify(mail)
         if app is None:
-            if len(companies) > 1 and (signal or is_recruiting_sender(mail)):
+            relevant = is_recruiting_sender(mail) or _PORTAL.search(mail.sender)
+            new = application_from_email(mail) if (auto_add and signal == "Acknowledged" and relevant) else None
+            if new and len(companies) <= 1:
+                report.added.append((mail, new))
+                if not dry_run:
+                    received = mail.received.astimezone().replace(tzinfo=None)
+                    app_id = tracker.add_application(
+                        company=new["company"], role=new["role"], source=new["source"], status="Applied",
+                        date_applied=received.date(), email_received="No",
+                        notes=f"[{received:%d %b}] added from email: {mail.subject[:120]}")
+                    tracker.log_email(received=received, **{"from": mail.sender[:200]}, subject=mail.subject[:250],
+                                      app_id=app_id, company=new["company"], signal=signal,
+                                      action="added to tracker from confirmation email", message_id=mail.message_id)
+                    apps = [a for a in tracker.applications() if a["status"] not in ("Lead",)]
+            elif len(companies) > 1 and (signal or is_recruiting_sender(mail)):
                 report.ambiguous.append((mail, companies))
             elif signal and is_recruiting_sender(mail):
                 report.unmatched.append(mail)

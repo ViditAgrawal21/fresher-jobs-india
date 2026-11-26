@@ -5,7 +5,8 @@ A personal job-search toolkit that lives next to the Fresher Jobs India pipeline
 1. **Discover** jobs on company boards (Greenhouse, Lever, Ashby, SmartRecruiters, plus Adzuna) that fit your stack and have at most 4 years of experience required.
 2. **Apply**: tailor a one-page resume to each posting with Claude, under a guard that blocks invented facts, render it to PDF, check the ATS text layer, and add a tracker row.
 3. **Track** everything in one Excel workbook: status, the email you applied with, replies, follow-ups, and weekly targets against actual.
-4. **Sync Gmail** to mark which companies replied and move statuses forward (acknowledged, assessment, interview, offer, rejected).
+4. **Sync Gmail** to mark which companies replied and move statuses forward (acknowledged, assessment, interview, offer, rejected). Confirmation emails for jobs you applied to elsewhere ("your application was sent to X" from LinkedIn, Naukri, Aperture or an ATS) add a tracker row automatically, so every application is counted.
+5. **Dashboard** (`python -m jobhunt dashboard --open`): one offline HTML page with the funnel, applications per week against your targets, the skills postings ask for (which you have, which are gaps), response rate by match % and by source, and every application with its keyword match and links to its tailored resume, report and job description.
 
 You still click Submit yourself. Portals such as LinkedIn and Naukri forbid bots, and a person reading each posting for 30 seconds catches what no script does.
 
@@ -28,9 +29,10 @@ python -m jobhunt resume    # base resume per track -> jobhunt\data\base\
 ## Daily loop (about 60–90 minutes for 4–5 applications)
 
 ```powershell
-python -m jobhunt sync-mail                 # replies since yesterday -> tracker
+python -m jobhunt sync-mail                 # replies since yesterday -> tracker (+ rows for untracked applications)
 python -m jobhunt followups                 # who to nudge today
 python -m jobhunt discover                  # new matching jobs -> Leads sheet (2-3x a week is enough)
+python -m jobhunt dashboard --open          # the visual overview
 ```
 
 For each job you want (from Leads, LinkedIn, Naukri or a referral):
@@ -81,5 +83,6 @@ Without an API key, or with `--offline`, tailoring is keyword-based and free. It
 | `followups` | Applied 7+ days ago with no reply, plus a draft message |
 | `sync-mail [--since DATE] [--dry-run]` | Read Gmail, update replies and statuses, log every match |
 | `discover [--max-years 4] [--min-score 35]` | Fetch and score openings into the Leads sheet |
+| `dashboard [--open]` | Build `jobhunt/data/dashboard.html` from the tracker and application folders |
 
-To add companies to `discover`, put their board slug in `pipeline/sources/boards.py`. The URL shows it, for example `boards.greenhouse.io/<slug>` or `jobs.lever.co/<slug>`.
+`discover` checks the boards in `pipeline/sources/boards.py` plus the extra experienced-hire boards in `jobhunt/discover.py` (Paytm, MongoDB, Databricks, Hevo Data, InMobi, Mindtickle, Twilio, FamPay, Truecaller, Airbnb). To add a company, put its board slug in `EXTRA_GREENHOUSE`, `EXTRA_LEVER` or `EXTRA_ASHBY`. The URL shows it, for example `boards.greenhouse.io/<slug>` or `jobs.lever.co/<slug>`.

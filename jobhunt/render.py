@@ -93,11 +93,12 @@ def _drop_bullet(entry) -> str:
 def _next_cut(doc: ResumeDoc, min_projects: int) -> str | None:
     """Apply the cheapest remaining cut to `doc` in place and describe it; None when nothing is left to cut.
 
-    Order: tighter layout, a 4th project, extra bullets on lower-ranked projects, then on
-    older jobs, the top project down to 3 bullets, then whole projects, then the top
-    project down to 2 bullets. The current job keeps at least 3 bullets.
+    Order: tighter layout; a 4th project; extra bullets on lower-ranked projects; past jobs
+    down to 2 bullets (oldest first); a 3rd project; the top project down to 3 bullets; the
+    current job down to 4; past jobs down to 1; the top project down to 2; the current job to 3.
     """
     first, rest = (doc.projects[0], doc.projects[1:]) if doc.projects else (None, [])
+    past = doc.experience[1:]
     if doc.density == "normal":
         doc.density = "compact"
         return "compact layout"
@@ -105,12 +106,16 @@ def _next_cut(doc: ResumeDoc, min_projects: int) -> str | None:
         return f"dropped project {doc.projects.pop().heading}"
     if (p := _last_with_extra_bullets(rest)) is not None:
         return _drop_bullet(p)
-    if (e := _last_with_extra_bullets(doc.experience[2:])) is not None:
+    if (e := _last_with_extra_bullets(past, keep=2)) is not None:
         return _drop_bullet(e)
+    if len(doc.projects) > max(min_projects, 2):
+        return f"dropped project {doc.projects.pop().heading}"
     if first is not None and len(first.bullets) > 3:
         return _drop_bullet(first)
-    if len(doc.experience) > 1 and len(doc.experience[1].bullets) > 1:
-        return _drop_bullet(doc.experience[1])
+    if doc.experience and len(doc.experience[0].bullets) > 4:
+        return _drop_bullet(doc.experience[0])
+    if (e := _last_with_extra_bullets(past)) is not None:
+        return _drop_bullet(e)
     if len(doc.projects) > min_projects:
         return f"dropped project {doc.projects.pop().heading}"
     if first is not None and len(first.bullets) > 2:
@@ -120,9 +125,10 @@ def _next_cut(doc: ResumeDoc, min_projects: int) -> str | None:
     return None
 
 
-def _last_with_extra_bullets(entries):
+def _last_with_extra_bullets(entries, keep: int = 1):
+    """The last entry (oldest job / lowest-ranked project) with more than `keep` bullets."""
     for e in reversed(entries):
-        if len(e.bullets) > 1:
+        if len(e.bullets) > keep:
             return e
     return None
 

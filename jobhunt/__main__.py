@@ -9,6 +9,7 @@
   followups    applications with no reply after N days, with a follow-up draft
   sync-mail    read Gmail and update replies / statuses
   discover     find matching openings on company job boards (and Adzuna)
+  dashboard    build the HTML dashboard: funnel, weekly targets, skills in demand, every resume
 """
 
 from __future__ import annotations
@@ -212,7 +213,9 @@ def cmd_sync_mail(args, s) -> None:
                                      skip_ids=set(state["processed"]))
     except Exception as exc:
         _fail(f"IMAP failed: {exc}. Check the App Password and that IMAP is enabled in Gmail settings.")
-    report = mailsync.process(t, mails, my_address=s.gmail_address, dry_run=args.dry_run)
+    report = mailsync.process(t, mails, my_address=s.gmail_address, dry_run=args.dry_run, auto_add=not args.no_add)
+    for mail, new in report.added:
+        print(f"  + new application from email: {new['company']} / {new['role']} ({new['source']})")
     for c in report.changes:
         arrow = f"{c.old_status} -> {c.new_status}" if c.new_status else "no status change"
         print(f"  {c.app_id} {c.company}: {c.signal or 'reply'} ({arrow}) | {c.mail.subject[:70]}"
@@ -228,7 +231,7 @@ def cmd_sync_mail(args, s) -> None:
     state["last_sync"] = date.today().isoformat()
     state["processed"] += [m.message_id for m in mails if m.message_id]
     mailsync.save_state(state_path, state)
-    print(f"Done: {len(mails)} emails read, {len(report.changes)} matched to applications, "
+    print(f"Done: {len(mails)} emails read, {len(report.changes)} matched to applications, {len(report.added)} added, "
           f"{len(report.conflicts)} conflict(s) to check by hand.")
 
 
@@ -249,6 +252,17 @@ def cmd_discover(args, s) -> None:
     print(f"{len(posts)} posts fetched, {len(rows)} match, {added} new added to the Leads sheet.")
     for r in rows[:10]:
         print(f"  {r['score']:3}  {r['company']} / {r['title']}  ({r['exp'] or 'exp not stated'})")
+
+
+def cmd_dashboard(args, s) -> None:
+    from jobhunt.dashboard import write_dashboard
+
+    out = write_dashboard(s)
+    print(f"Dashboard: {out}")
+    if args.open:
+        import webbrowser
+
+        webbrowser.open(out.resolve().as_uri())
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -299,6 +313,8 @@ def main(argv: list[str] | None = None) -> None:
     a = sub.add_parser("sync-mail", help="read Gmail and update the tracker")
     a.add_argument("--since", help="YYYY-MM-DD, default: last sync")
     a.add_argument("--dry-run", action="store_true")
+    a.add_argument("--no-add", action="store_true",
+                   help="don't create rows for 'application received' emails about untracked jobs")
 
     a = sub.add_parser("discover", help="find matching openings")
     a.add_argument("--sources", default="greenhouse,lever,ashby,smartrecruiters,adzuna")
@@ -306,10 +322,14 @@ def main(argv: list[str] | None = None) -> None:
     a.add_argument("--min-score", type=int, default=35)
     a.add_argument("--limit", type=int, default=150)
 
+    a = sub.add_parser("dashboard", help="build the HTML dashboard (jobhunt/data/dashboard.html)")
+    a.add_argument("--open", action="store_true", help="open it in your browser")
+
     args = p.parse_args(argv)
     s = get_settings()
     {"init": cmd_init, "resume": cmd_resume, "apply": cmd_apply, "applied": cmd_applied, "status": cmd_status,
-     "list": cmd_list, "followups": cmd_followups, "sync-mail": cmd_sync_mail, "discover": cmd_discover}[args.cmd](args, s)
+     "list": cmd_list, "followups": cmd_followups, "sync-mail": cmd_sync_mail, "discover": cmd_discover,
+     "dashboard": cmd_dashboard}[args.cmd](args, s)
 
 
 if __name__ == "__main__":

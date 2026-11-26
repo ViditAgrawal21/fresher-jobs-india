@@ -19,7 +19,7 @@ _TERMS: dict[str, list[str]] = {
     "Kotlin": [r"kotlin"],
     "Swift": [r"swift(?:ui)?"],
     "Go": [r"golang"],
-    "Rust": [r"rust"],
+    "Rust": [r"rust", r"axum", r"tokio"],
     "C++": [r"c\+\+", r"cpp"],
     "C#": [r"c#"],
     ".NET": [r"\.net", r"dotnet"],
@@ -33,7 +33,7 @@ _TERMS: dict[str, list[str]] = {
     # backend
     "Node.js": [r"node\.?js", r"node"],
     "NestJS": [r"nest\.?js"],
-    "Express.js": [r"express\.?js"],
+    "Express.js": [r"express\.?js", r"express\s+api", r"fastify"],
     "FastAPI": [r"fast\s?api"],
     "Django": [r"django"],
     "Flask": [r"flask"],
@@ -49,10 +49,12 @@ _TERMS: dict[str, list[str]] = {
     "RabbitMQ": [r"rabbitmq"],
     "Message Queues": [r"message\s+queues?", r"queues?"],
     "Authentication": [r"authentication", r"oauth\s?2?(?:\.0)?", r"jwt", r"auth"],
-    "Payments": [r"payments?", r"payment\s+gateway"],
+    "Payments": [r"payments?", r"payment\s+gateway", r"razorpay", r"stripe"],
+    "WhatsApp API": [r"whatsapp(?:\s+(?:cloud\s+)?api)?"],
     # data
     "PostgreSQL": [r"postgres(?:ql)?", r"psql"],
     "MySQL": [r"mysql"],
+    "SQL Server": [r"sql\s+server", r"mssql"],
     "MongoDB": [r"mongo(?:db)?"],
     "Supabase": [r"supabase"],
     "Firebase": [r"firebase"],
@@ -72,7 +74,8 @@ _TERMS: dict[str, list[str]] = {
     "Angular": [r"angular(?:js)?"],
     "Vue": [r"vue(?:\.?js)?"],
     "Tailwind CSS": [r"tailwind(?:\s?css)?"],
-    "Android": [r"android"],
+    "Three.js": [r"three\.?js"],
+    "Android": [r"android", r"jetpack\s+compose"],
     "iOS": [r"ios"],
     "Expo": [r"expo"],
     # cloud / devops
@@ -82,6 +85,7 @@ _TERMS: dict[str, list[str]] = {
     "EC2": [r"ec2"],
     "Athena": [r"athena"],
     "SQS": [r"sqs"],
+    "SES": [r"ses", r"simple\s+email\s+service"],
     "GCP": [r"gcp", r"google\s+cloud"],
     "Cloud Run": [r"cloud\s+run"],
     "Azure": [r"azure"],
@@ -92,6 +96,7 @@ _TERMS: dict[str, list[str]] = {
     "Linux": [r"linux", r"unix"],
     "Nginx": [r"nginx"],
     "Vercel": [r"vercel"],
+    "Cloudflare": [r"cloudflare(?:\s+workers)?"],
     "Serverless": [r"serverless"],
     # AI
     "LLM": [r"llms?", r"large\s+language\s+models?", r"llm\s+integration"],
@@ -100,6 +105,7 @@ _TERMS: dict[str, list[str]] = {
     "LangChain": [r"lang\s?chain", r"lang\s?graph"],
     "LlamaIndex": [r"llama\s?index"],
     "OpenAI": [r"openai", r"gpt-?\d*"],
+    "Gemini": [r"gemini"],
     "Claude": [r"claude(?:\s+(?:api|code|haiku|sonnet|opus))?", r"anthropic"],
     "Vector Databases": [r"vector\s+(?:db|database|store|search)s?", r"pinecone", r"weaviate", r"qdrant", r"milvus", r"chroma(?:db)?", r"pgvector"],
     "Embeddings": [r"embeddings?"],
@@ -127,12 +133,15 @@ _TERMS: dict[str, list[str]] = {
     # domain words that show up in the profile and in posts
     "Multi-tenant SaaS": [r"multi-?tenant", r"saas"],
     "Real-time": [r"real[- ]time", r"live[- ]streaming"],
-    "IoT": [r"iot", r"esp32", r"bluetooth", r"embedded"],
+    "IoT": [r"iot", r"esp32", r"bluetooth", r"embedded\s+(?:systems?|devices?|c)", r"nfc"],
 }
 
 # Terms that are too generic to count as a "missing skill" when a post mentions them.
 GENERIC = {"REST APIs", "Git", "Agile", "Data Structures & Algorithms", "System Design", "Message Queues",
            "Authentication", "Docker", "Real-time", "Unit Testing", "SQL"}
+
+# Domain words: real signal for a reader, but too common in postings to drive a match score.
+DOMAIN = {"Payments", "Multi-tenant SaaS", "Real-time", "IoT", "WhatsApp API", "Data Pipelines"}
 
 # "Go" only counts when it's clearly the language, not the verb.
 _GO_RE = re.compile(r"(?<![A-Za-z])Go(?=\s*(?:[,/)]|\s+(?:developer|engineer|programming|language|lang)\b))")
@@ -152,7 +161,7 @@ def extract_terms(text: str) -> set[str]:
     if _GO_RE.search(text):
         found.add("Go")
     # "AWS Lambda" / "S3" imply AWS; "Cloud Run" implies GCP.
-    if found & {"AWS Lambda", "S3", "EC2", "Athena", "SQS"}:
+    if found & {"AWS Lambda", "S3", "EC2", "Athena", "SQS", "SES"}:
         found.add("AWS")
     if "Cloud Run" in found:
         found.add("GCP")
@@ -184,20 +193,26 @@ _YEARS_RE = re.compile(
     r"(\d{1,2})(?:\.\d)?\s*(?:\+|plus)?\s*(?:(?:-|–|—|to)\s*(\d{1,2})\s*)?\+?\s*(?:years?|yrs?)\b",
     re.I,
 )
-_EXP_CONTEXT_RE = re.compile(r"experience|exp\b|background|working|hands[- ]on|professional", re.I)
+# "N years" that is about the company or the past, not a requirement.
+_NOT_REQUIREMENT_RE = re.compile(
+    r"\bago\b|founded|history|since\b|in business|anniversary|old\b|journey|legacy|track record|over the (?:past|last)"
+    r"|for (?:the )?(?:past|last)|warranty|tenure|contract (?:of|for)|duration|bond|age\b|aged\b",
+    re.I,
+)
 
 
 def years_required(text: str) -> int | None:
     """Minimum years of experience a post asks for, or None if it doesn't say.
 
-    Takes the largest lower bound found near the word "experience", so
-    "3+ years of experience ... 1+ year with Docker" -> 3, and "2-4 years" -> 2.
+    Every "N years" / "N-M years" / "N+ years" counts unless the words around it are about
+    the company or the past ("founded 10 years ago"). Takes the largest lower bound, so
+    "5+ years in ML systems, with 2+ years on inference" -> 5, and "2-4 years" -> 2.
     """
     text = text or ""
     lows: list[int] = []
     for m in _YEARS_RE.finditer(text):
-        window = text[max(0, m.start() - 80): m.end() + 80]
-        if not _EXP_CONTEXT_RE.search(window):
+        window = text[max(0, m.start() - 40): m.end() + 30]
+        if _NOT_REQUIREMENT_RE.search(window):
             continue
         low = int(m.group(1))
         if low <= 20:

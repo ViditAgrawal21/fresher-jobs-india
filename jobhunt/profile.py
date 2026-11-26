@@ -35,6 +35,17 @@ class Bullet(BaseModel):
     id: str
     text: str
     tags: list[str] = Field(default_factory=list)
+    follows: str | None = None  # this bullet only makes sense right after that one ("Later added ...")
+
+
+def _respect_follows(ids: list[str], bullets: list[Bullet]) -> list[str]:
+    """Move each bullet that `follows` another to just after it, when both are on the page."""
+    out = list(ids)
+    for b in bullets:
+        if b.follows and b.id in out and b.follows in out:
+            out.remove(b.id)
+            out.insert(out.index(b.follows) + 1, b.id)
+    return out
 
 
 class Job(BaseModel):
@@ -155,7 +166,7 @@ class ResumeDoc(BaseModel):
 
 
 def job_entry(job: Job, bullet_ids: list[str] | None = None, texts: dict[str, str] | None = None) -> ResumeEntry:
-    ids = bullet_ids or [b.id for b in job.bullets]
+    ids = _respect_follows(bullet_ids or [b.id for b in job.bullets], job.bullets)
     by_id = {b.id: b.text for b in job.bullets}
     texts = texts or {}
     return ResumeEntry(
@@ -167,7 +178,7 @@ def job_entry(job: Job, bullet_ids: list[str] | None = None, texts: dict[str, st
 
 
 def project_entry(project: Project, bullet_ids: list[str] | None = None, texts: dict[str, str] | None = None) -> ResumeEntry:
-    ids = bullet_ids or [b.id for b in project.bullets]
+    ids = _respect_follows(bullet_ids or [b.id for b in project.bullets], project.bullets)
     by_id = {b.id: b.text for b in project.bullets}
     texts = texts or {}
     return ResumeEntry(
@@ -177,21 +188,46 @@ def project_entry(project: Project, bullet_ids: list[str] | None = None, texts: 
     )
 
 
-def ordered_skills(profile: Profile, order: list[str], highlight: list[str] | None = None) -> list[SkillGroup]:
-    """Skill groups in `order` (unknown categories appended), highlighted items first within each group."""
+SKILL_LINE_CHARS = 98  # about one printed line per skill category at resume font size
+
+
+def _one_line(category: str, items: list[str], max_chars: int) -> list[str]:
+    kept, length = [], len(category) + 2
+    for item in items:
+        length += len(item) + 2
+        if kept and length > max_chars:
+            break
+        kept.append(item)
+    return kept
+
+
+def ordered_skills(profile: Profile, order: list[str], highlight: list[str] | None = None,
+                   max_chars: int | None = SKILL_LINE_CHARS) -> list[SkillGroup]:
+    """Skill groups in `order` (unknown categories appended), highlighted items first within each
+    group, then cut to about one printed line (the profile lists the most important skills first)."""
     rank = {c: i for i, c in enumerate(order)}
     groups = sorted(profile.skills, key=lambda g: rank.get(g.category, len(rank)))
     hl = {h.lower() for h in (highlight or [])}
     out = []
     for g in groups:
         first = [s for s in g.items if s.lower() in hl]
-        out.append(SkillGroup(category=g.category, items=first + [s for s in g.items if s.lower() not in hl]))
+        items = first + [s for s in g.items if s.lower() not in hl]
+        out.append(SkillGroup(category=g.category, items=_one_line(g.category, items, max_chars) if max_chars else items))
     return out
 
 
-def track_order(bullets: list[Bullet], track: str) -> list[str]:
-    """Bullet ids with the ones tagged for `track` first (stable otherwise)."""
-    return [b.id for b in sorted(bullets, key=lambda b: track not in b.tags)]
+def track_order(bullets: list[Bullet], track: str, limit: int | None = None) -> list[str]:
+    """Bullet ids with the ones tagged for `track` first (stable otherwise), at most `limit`."""
+    return [b.id for b in sorted(bullets, key=lambda b: track not in b.tags)][:limit]
+
+
+def job_bullet_cap(index: int) -> int:
+    """Bullets per job on a one-page resume: 5 for the current job, 3 for the next two, 2 after."""
+    return 5 if index == 0 else 3 if index <= 2 else 2
+
+
+def project_bullet_cap(index: int) -> int:
+    return 4 if index == 0 else 2
 
 
 def base_resume(profile: Profile, track: str, contact: list[str]) -> ResumeDoc:
@@ -205,8 +241,10 @@ def base_resume(profile: Profile, track: str, contact: list[str]) -> ResumeDoc:
         links=profile.links,
         summary=profile.track_summary(track),
         skills=ordered_skills(profile, spec.skill_order),
-        experience=[job_entry(j, track_order(j.bullets, track)) for j in profile.experience],
-        projects=[project_entry(p, track_order(p.bullets, track)) for p in projects],
+        experience=[job_entry(j, track_order(j.bullets, track, job_bullet_cap(i)))
+                    for i, j in enumerate(profile.experience)],
+        projects=[project_entry(p, track_order(p.bullets, track, project_bullet_cap(i)))
+                  for i, p in enumerate(projects)],
         education=profile.education,
         achievements=profile.achievements,
     )

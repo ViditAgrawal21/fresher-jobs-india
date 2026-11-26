@@ -21,9 +21,10 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from rapidfuzz import fuzz
 
-from jobhunt.keywords import GENERIC, extract_terms, first_positions, numbers_in, years_required
+from jobhunt.keywords import DOMAIN, GENERIC, extract_terms, first_positions, numbers_in, years_required
 from jobhunt.profile import (
-    TRACKS, Profile, ResumeDoc, Track, job_entry, ordered_skills, project_entry, track_order,
+    TRACKS, Profile, ResumeDoc, Track, job_bullet_cap, job_entry, ordered_skills, project_bullet_cap, project_entry,
+    track_order,
 )
 
 log = logging.getLogger(__name__)
@@ -128,39 +129,45 @@ def keyword_coverage(profile: Profile, jd: str, role: str = "") -> dict:
     first = lambda term: (pos.get(term, len(text)), term)  # noqa: E731 - order by what the post says first
     matched = sorted(specific & supported, key=first)
     missing = sorted(specific - supported, key=first)
-    pct = round(100 * len(matched) / len(specific)) if specific else 0
-    return {"matched": matched, "missing": missing, "coverage_pct": pct, "years_required": years_required(jd)}
+    # The percentage counts real skills only: domain words ("payments", "SaaS") are listed but don't score.
+    core = specific - DOMAIN
+    core_matched = core & supported
+    pct = round(100 * len(core_matched) / len(core)) if core else 0
+    return {"matched": matched, "missing": missing, "coverage_pct": pct, "core_matched": len(core_matched),
+            "years_required": years_required(jd)}
 
 
 # ---------- offline (keyword) tailoring ----------
 
 def offline_tailor(profile: Profile, jd: str, company: str, role: str) -> Tailoring:
     jd_terms = extract_terms(jd + "\n" + role)
+    rank_terms = jd_terms - DOMAIN - GENERIC  # what ranks bullets and projects: real skills only
     track = pick_track(profile, jd, role)
     spec = profile.tracks[track]
 
     def bullet_score(b) -> float:
-        return len(extract_terms(b.text) & jd_terms) + (0.5 if track in b.tags else 0)
+        return len(extract_terms(b.text) & rank_terms) + (0.5 if track in b.tags else 0)
 
     experience = []
-    for job in profile.experience:
-        ranked = sorted(job.bullets, key=bullet_score, reverse=True)  # stable: ties keep profile order
+    for i, job in enumerate(profile.experience):
+        ranked = sorted(job.bullets, key=bullet_score, reverse=True)[: job_bullet_cap(i)]  # stable on ties
         experience.append(EntryPick(id=job.id, bullets=[BulletPick(source_id=b.id, text=b.text) for b in ranked]))
 
     def project_score(p) -> float:
         text = " ".join([p.stack_line, *p.stack, *(b.text for b in p.bullets)])
         rank_bonus = (len(spec.projects) - spec.projects.index(p.id)) * 0.4 if p.id in spec.projects else 0
-        return len(extract_terms(text) & jd_terms) + rank_bonus
+        return len(extract_terms(text) & rank_terms) + rank_bonus
 
     projects = sorted(profile.projects, key=project_score, reverse=True)[:4]
     picks = [EntryPick(id=p.id, bullets=[BulletPick(source_id=b.id, text=b.text)
-                                         for b in sorted(p.bullets, key=bullet_score, reverse=True)])
-             for p in projects]
+                                         for b in sorted(p.bullets, key=bullet_score, reverse=True)[: project_bullet_cap(i)]])
+             for i, p in enumerate(projects)]
 
-    skills_first = [s for s in profile.all_skills() if extract_terms(s) & jd_terms][:8]
+    skills_first = [s for s in profile.all_skills() if extract_terms(s) & (jd_terms - GENERIC)][:8]
     cov = keyword_coverage(profile, jd, role)
     years = cov["years_required"]
-    score = cov["coverage_pct"]
+    # Coverage of few keywords overstates fit (3 of 3 = 100%), so breadth of the match counts too.
+    score = round(0.7 * cov["coverage_pct"] + 30 * min(cov["core_matched"], 6) / 6)
     red_flags = []
     if years is not None and years > 4:
         score -= 25
@@ -316,7 +323,7 @@ def apply_tailoring(profile: Profile, t: Tailoring, contact: list[str]) -> tuple
         if not ids:
             if job.id not in picks:
                 warnings.append(f"{job.company}: not in tailoring, used default bullets")
-            ids, texts = track_order(job.bullets, track), {}
+            ids, texts = track_order(job.bullets, track, job_bullet_cap(len(experience))), {}
         experience.append(job_entry(job, ids, texts))
 
     projects = []

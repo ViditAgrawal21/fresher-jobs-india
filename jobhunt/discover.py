@@ -14,7 +14,7 @@ import re
 from datetime import date
 from pathlib import Path
 
-from jobhunt.keywords import slug, years_required
+from jobhunt.keywords import DOMAIN, slug, years_required
 from jobhunt.profile import Profile
 from jobhunt.tailor import keyword_coverage, pick_track
 
@@ -28,6 +28,13 @@ DISCOVER_QUERIES = [
 
 TRACK_LABELS = {"backend": "Backend", "fullstack": "Full Stack", "ai": "AI Engineer", "mobile": "Mobile"}
 
+# Boards on top of pipeline/sources/boards.py that hire experienced engineers in India. Kept here,
+# not in the pipeline, so the public fresher site is unchanged. Probed 26 Nov 2026 (India openings).
+EXTRA_GREENHOUSE = {"mongodb": "MongoDB", "databricks": "Databricks", "inmobi": "InMobi", "twilio": "Twilio",
+                    "truecaller": "Truecaller", "airbnb": "Airbnb"}
+EXTRA_LEVER = {"paytm": "Paytm", "hevodata": "Hevo Data", "mindtickle": "Mindtickle", "fampay": "FamPay"}
+EXTRA_ASHBY: dict[str, str] = {}
+
 _SOFTWARE_TITLE = re.compile(
     r"engineer|developer|\bsde\b|programmer|full[ -]?stack|back[ -]?end|front[ -]?end|mobile|software|\bai\b|\bllm\b|genai",
     re.I,
@@ -35,6 +42,8 @@ _SOFTWARE_TITLE = re.compile(
 # Titles that are the wrong kind of role or the wrong stack for this profile.
 _SKIP_TITLE = re.compile(
     r"\bintern|trainee|apprentice|fresher|graduate|\bqa\b|quality|\btest|sdet|support|sales|pre-?sales|data analyst"
+    r"|\bgtm\b|people systems|customer (?:success|experience)|power (?:bi|automate|apps)|\bbi\b|asset management"
+    r"|specialist|measurement|\bnpd\b|devsecops|ml ?ops|research|database migration|stibo|oracle|deep learning"
     r"|data scientist|devops|\bsre\b|site reliability|security|embedded|hardware|firmware|manager|director|\blead\b"
     r"|principal|staff|head|architect|salesforce|\bsap\b|\bjava\b|\.net|\bphp\b|golang|\bgo\b|ruby|c\+\+|scala"
     r"|mainframe|network|verification|vlsi|analog|mechanical|electrical",
@@ -44,24 +53,29 @@ _SKIP_TITLE = re.compile(
 
 def score_post(profile: Profile, post, *, max_years: int = 4) -> dict | None:
     """A Leads-sheet row for a post worth looking at, or None."""
-    from pipeline.normalize import html_to_text
+    from pipeline.filters import looks_senior
+    from pipeline.normalize import clean_title, html_to_text
 
-    title = post.title or ""
-    if not _SOFTWARE_TITLE.search(title) or _SKIP_TITLE.search(title):
+    # "IN_Bosch Rexroth India_Test Automation" -> "Test Automation"; underscores hide word boundaries.
+    title = re.sub(r"_+", " ", clean_title(post.title or "")).strip()
+    if not _SOFTWARE_TITLE.search(title) or _SKIP_TITLE.search(title) or looks_senior(title):
         return None
     desc = html_to_text(post.description or "")
     years = years_required(desc)
     if years is not None and years > max_years:
         return None
     cov = keyword_coverage(profile, desc, title)
-    if not cov["matched"]:
+    core = [m for m in cov["matched"] if m not in DOMAIN]
+    if len(core) < 3:  # one or two shared keywords is noise, not a fit
         return None
+    asked = [t for t in cov["matched"] + cov["missing"] if t not in DOMAIN]
+    core_pct = round(100 * len(core) / len(asked)) if asked else 0
     track = pick_track(profile, desc, title)
     pattern = profile.tracks[track].title_pattern
     title_bonus = 15 if pattern and re.search(pattern, title, re.I) else 0
     # Coverage alone overrates vague posts (1 keyword of 1 = 100%), so breadth of the match counts too.
-    breadth = 30 * min(len(cov["matched"]), 6) / 6
-    score = min(100, round(0.55 * cov["coverage_pct"] + breadth + title_bonus))
+    breadth = 30 * min(len(core), 6) / 6
+    score = min(100, round(0.55 * core_pct + breadth + title_bonus))
     posted = post.posted_at.date() if post.posted_at else None
     return {
         "key": f"{post.source}:{post.source_id}",
@@ -90,7 +104,16 @@ def fetch_posts(sources: list[str]) -> tuple[list, list[str]]:
     class DiscoverAdzuna(AdzunaSource):
         queries = DISCOVER_QUERIES
 
-    classes = {"greenhouse": GreenhouseSource, "lever": LeverSource, "ashby": AshbySource,
+    class Greenhouse(GreenhouseSource):
+        companies = {**GreenhouseSource.companies, **EXTRA_GREENHOUSE}
+
+    class Lever(LeverSource):
+        companies = {**LeverSource.companies, **EXTRA_LEVER}
+
+    class Ashby(AshbySource):
+        companies = {**AshbySource.companies, **EXTRA_ASHBY}
+
+    classes = {"greenhouse": Greenhouse, "lever": Lever, "ashby": Ashby,
                "smartrecruiters": SmartRecruitersSource, "adzuna": DiscoverAdzuna}
     posts, errors = [], []
     with make_client() as client:

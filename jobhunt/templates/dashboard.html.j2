@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Job Search Dashboard</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f9; --surface: #ffffff; --ink: #191919; --ink-2: #666666;
+    --grid: #e7e7e7; --axis: #c2c2c2; --ring: rgba(11,11,11,0.10);
+    --have: #257de0; --gap: #f47230; --have-tint: rgba(37,125,224,0.10); --gap-tint: rgba(244,114,48,0.12);
+    --good: #0aac23; --good-ink: #006c10; --warn: #fbb315; --crit: #dc3c3d;
+    --chip-ink: #0e3d7e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page: #0b0b0b; --surface: #191919; --ink: #efefef; --ink-2: #9c9c9c;
+      --grid: #303030; --axis: #474747; --ring: rgba(255,255,255,0.10);
+      --have: #338ced; --gap: #e76624; --have-tint: rgba(51,140,237,0.18); --gap-tint: rgba(231,102,36,0.18);
+      --good-ink: #53c556; --chip-ink: #b6d5f8;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0b0b0b; --surface: #191919; --ink: #efefef; --ink-2: #9c9c9c;
+    --grid: #303030; --axis: #474747; --ring: rgba(255,255,255,0.10);
+    --have: #338ced; --gap: #e76624; --have-tint: rgba(51,140,237,0.18); --gap-tint: rgba(231,102,36,0.18);
+    --good-ink: #53c556; --chip-ink: #b6d5f8;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1200px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; margin: 0; }
+  h2 { font-size: 15px; margin: 0 0 2px; }
+  .sub { color: var(--ink-2); font-size: 12.5px; }
+  header { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+  select, input[type=search], button {
+    font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--axis);
+    border-radius: 8px; padding: 6px 10px; min-height: 34px;
+  }
+  input[type=search] { min-width: 220px; flex: 1 1 220px; max-width: 360px; }
+  button { cursor: pointer; }
+  button:hover, select:hover { border-color: var(--ink-2); }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .tile, .card { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; }
+  .tile { padding: 12px 14px; }
+  .tile .label { color: var(--ink-2); font-size: 12.5px; }
+  .tile .value { font-size: 28px; font-weight: 650; line-height: 1.2; margin-top: 2px; }
+  .tile .note { color: var(--ink-2); font-size: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .card { padding: 14px 16px; min-width: 0; }
+  .card.wide { grid-column: 1 / -1; }
+  .card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+  .legend { display: flex; gap: 14px; color: var(--ink-2); font-size: 12.5px; align-items: center; flex-wrap: wrap; }
+  .key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .key.line { height: 2px; width: 14px; vertical-align: 3px; border-radius: 1px; }
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  svg text { fill: var(--ink); font-size: 12px; }
+  svg .muted { fill: var(--ink-2); }
+  svg .val { font-variant-numeric: tabular-nums; }
+  svg .mark:focus { outline: none; }
+  svg .mark:hover, svg .mark:focus-visible { filter: brightness(1.12); stroke: var(--ink); stroke-width: 1; }
+  .empty { color: var(--ink-2); padding: 18px 4px; }
+  .seg { display: inline-flex; border: 1px solid var(--axis); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; min-height: 28px; padding: 3px 10px; font-size: 12.5px; }
+  .seg button[aria-pressed=true] { background: var(--ink); color: var(--surface); }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+  th { color: var(--ink-2); font-weight: 600; font-size: 12px; white-space: nowrap; position: sticky; top: 0; background: var(--surface); }
+  th.sortable { cursor: pointer; user-select: none; }
+  th.sortable:hover { color: var(--ink); }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .role { color: var(--ink-2); font-size: 12.5px; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--axis); white-space: nowrap; }
+  .pill.good { border-color: var(--good); color: var(--good-ink); }
+  .pill.crit { border-color: var(--crit); color: var(--crit); }
+  .pill.warn { border-color: var(--warn); }
+  .pill.active { border-color: var(--have); color: var(--have); }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; max-width: 360px; }
+  .chip { font-size: 11.5px; padding: 1px 6px; border-radius: 6px; white-space: nowrap; }
+  .chip.have { background: var(--have-tint); color: var(--ink); }
+  .chip.gap { background: var(--gap-tint); color: var(--ink); border: 1px dashed var(--gap); }
+  .chip.more { color: var(--ink-2); }
+  .bar { position: relative; height: 6px; background: var(--grid); border-radius: 3px; width: 64px; margin-top: 4px; }
+  .bar > span { position: absolute; left: 0; top: 0; bottom: 0; background: var(--have); border-radius: 0 3px 3px 0; }
+  .files a { color: var(--have); text-decoration: none; margin-right: 8px; white-space: nowrap; }
+  .files a:hover { text-decoration: underline; }
+  code { font-size: 12px; background: var(--page); padding: 1px 5px; border-radius: 4px; border: 1px solid var(--ring); white-space: nowrap; }
+  .tip { position: fixed; pointer-events: none; background: var(--surface); color: var(--ink); border: 1px solid var(--ring);
+         box-shadow: 0 4px 16px rgba(0,0,0,0.12); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; z-index: 10;
+         max-width: 280px; display: none; }
+  .tip b { display: block; font-size: 15px; }
+  .tip .tip-label { color: var(--ink-2); }
+  footer { color: var(--ink-2); font-size: 12.5px; margin-top: 8px; }
+  @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Job search: {{ name }}</h1>
+      <div class="sub" id="generated"></div>
+    </div>
+    <button id="theme" type="button" aria-label="Switch light or dark theme">Theme</button>
+  </header>
+
+  <div class="filters" role="group" aria-label="Filters">
+    <select id="f-track" aria-label="Track">
+      <option value="All">All tracks</option>
+      <option>Backend</option><option>Full Stack</option><option>AI Engineer</option><option>Mobile</option>
+      <option>Founding</option><option>Other</option>
+    </select>
+    <select id="f-period" aria-label="Period">
+      <option value="all">All time</option><option value="30">Last 30 days</option><option value="7">Last 7 days</option>
+    </select>
+    <input id="f-q" type="search" placeholder="Search company, role or skill" aria-label="Search">
+  </div>
+
+  <section class="kpis" id="kpis" aria-label="Key numbers"></section>
+
+  <section class="grid">
+    <div class="card">
+      <div class="card-head"><div><h2>Funnel</h2><div class="sub">Sent applications and how far they got. Auto "we received it" emails don't count as a response.</div></div></div>
+      <div id="funnel"></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <div><h2>Applications per week</h2><div class="sub">Sent (bars) against the weekly target from your plan (line)</div></div>
+        <div class="legend"><span><span class="key" style="background:var(--have)"></span>Sent</span><span><span class="key line" style="background:var(--ink)"></span>Target</span></div>
+      </div>
+      <div id="weekly"></div>
+    </div>
+    <div class="card wide">
+      <div class="card-head">
+        <div><h2>What the postings ask for</h2><div class="sub" id="market-sub"></div></div>
+        <div class="legend">
+          <span><span class="key" style="background:var(--have)"></span>On your profile</span>
+          <span><span class="key" style="background:var(--gap)"></span>Gap: learn it or skip these jobs</span>
+          <span class="seg" role="group" aria-label="Which postings">
+            <button type="button" data-scope="apps" aria-pressed="true">Your applications</button>
+            <button type="button" data-scope="all" aria-pressed="false">+ found leads</button>
+          </span>
+        </div>
+      </div>
+      <div id="market"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div><h2>Response rate by match %</h2><div class="sub">Do better-matched jobs reply more? Bars need about 10 sent applications each to mean much.</div></div></div>
+      <div id="by-match"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div><h2>Response rate by source</h2><div class="sub">Put more time where people answer</div></div></div>
+      <div id="by-source"></div>
+    </div>
+  </section>
+
+  <section class="card" style="margin-bottom:16px">
+    <div class="card-head"><div><h2>Applications</h2><div class="sub" id="apps-sub"></div></div></div>
+    <div class="table-wrap"><table id="apps"></table></div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><div><h2>Leads to apply to next</h2><div class="sub">Found by <code>python -m jobhunt discover</code>, best match first. Run the command shown to get a tailored resume.</div></div></div>
+    <div class="table-wrap"><table id="leads"></table></div>
+  </section>
+
+  <footer>Rebuild with <code>python -m jobhunt dashboard</code> after <code>apply</code>, <code>sync-mail</code> or <code>discover</code>. The data lives in tracker.xlsx; this page only reads it.</footer>
+</main>
+<div class="tip" id="tip" role="status" aria-live="polite"></div>
+
+<script id="jh-data" type="application/json">{{ data_json }}</script>
+<script>
+(() => {
+  "use strict";
+  const D = JSON.parse(document.getElementById("jh-data").textContent);
+  const NS = "http://www.w3.org/2000/svg";
+  const RESPONDED = new Set(["Viewed", "Assessment", "Interviewing", "Offer", "Accepted", "Rejected"]);
+  const SIGNAL_RESP = new Set(["Viewed", "Assessment", "Interview", "Offer", "Rejected"]);
+  const INTERVIEW = new Set(["Assessment", "Interviewing", "Offer", "Accepted"]);
+  const today = new Date(D.today + "T00:00:00");
+  const state = { track: "All", period: "all", q: "", scope: "apps", sort: { key: "added", dir: -1 } };
+
+  // ---------- theme (per-viewer preference; storage may be unavailable) ----------
+  const root = document.documentElement;
+  try { const t = localStorage.getItem("jh-theme"); if (t) root.dataset.theme = t; } catch (e) {}
+  document.getElementById("theme").addEventListener("click", () => {
+    const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    root.dataset.theme = dark ? "light" : "dark";
+    try { localStorage.setItem("jh-theme", root.dataset.theme); } catch (e) {}
+  });
+
+  // ---------- helpers ----------
+  const days = iso => iso ? Math.round((today - new Date(iso + "T00:00:00")) / 864e5) : null;
+  const fmtDate = iso => iso ? new Date(iso + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "–";
+  const pct = (a, b) => b ? Math.round(100 * a / b) : 0;
+  const isSent = a => !!a.applied || !["Lead", "Tailored"].includes(a.status);
+  const responded = a => RESPONDED.has(a.status) || SIGNAL_RESP.has(a.signal);
+  const followUp = a => ["Applied", "Acknowledged"].includes(a.status) && days(a.applied) >= D.follow_days && !responded(a);
+  const inPeriod = iso => state.period === "all" || (iso && days(iso) <= +state.period);
+  const hay = parts => parts.join(" ").toLowerCase().includes(state.q);
+
+  function apps() {
+    return D.apps.filter(a => (state.track === "All" || a.track === state.track) && inPeriod(a.applied || a.added)
+      && (!state.q || hay([a.company, a.role, a.status, a.source, ...a.matched, ...a.missing])));
+  }
+  function leads() {
+    return D.leads.filter(l => (state.track === "All" || l.track === state.track) && inPeriod(l.found)
+      && (!state.q || hay([l.company, l.title, l.location, ...l.matched, ...l.missing])));
+  }
+  function node(tag, attrs = {}, parent, txt) {
+    const e = document.createElement(tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (txt !== undefined) e.textContent = txt;
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function svgEl(tag, attrs = {}, parent, txt) {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (txt !== undefined) e.textContent = txt;
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  // A bar with its free end rounded (4px) and the baseline end square.
+  function hbarPath(x, y, w, h) {
+    const r = Math.min(4, w / 2, h / 2);
+    return `M${x} ${y}h${w - r}a${r} ${r} 0 0 1 ${r} ${r}v${h - 2 * r}a${r} ${r} 0 0 1 ${-r} ${r}h${-(w - r)}z`;
+  }
+  function vbarPath(x, y, w, h) {
+    const r = Math.min(4, w / 2, h / 2);
+    return `M${x} ${y + h}v${-(h - r)}a${r} ${r} 0 0 1 ${r} ${-r}h${w - 2 * r}a${r} ${r} 0 0 1 ${r} ${r}v${h - r}z`;
+  }
+
+  // ---------- tooltip ----------
+  const tip = document.getElementById("tip");
+  function bindTip(mark, value, label, extra) {
+    mark.setAttribute("tabindex", "0");
+    mark.setAttribute("class", "mark");
+    mark.setAttribute("aria-label", `${label}: ${value}${extra ? ", " + extra : ""}`);
+    const show = ev => {
+      tip.textContent = "";
+      node("b", {}, tip, value);
+      node("div", { class: "tip-label" }, tip, label);
+      if (extra) node("div", { class: "tip-label" }, tip, extra);
+      tip.style.display = "block";
+      const r = ev.clientX !== undefined ? { x: ev.clientX, y: ev.clientY } : (() => { const b = mark.getBoundingClientRect(); return { x: b.right, y: b.top }; })();
+      const w = tip.offsetWidth, h = tip.offsetHeight;
+      tip.style.left = Math.min(r.x + 14, innerWidth - w - 8) + "px";
+      tip.style.top = Math.max(8, r.y - h - 10) + "px";
+    };
+    mark.addEventListener("pointermove", show);
+    mark.addEventListener("focus", show);
+    mark.addEventListener("pointerleave", () => tip.style.display = "none");
+    mark.addEventListener("blur", () => tip.style.display = "none");
+  }
+
+  // ---------- horizontal bars (ranked; value and name printed as text) ----------
+  function hbars(host, rows, opts = {}) {
+    host.textContent = "";
+    if (!rows.length) { node("div", { class: "empty" }, host, opts.empty || "Nothing to show yet."); return; }
+    const W = Math.max(300, host.clientWidth || 560), labelW = opts.labelW || Math.min(170, W * 0.32), valueW = 92, barH = 18, gap = 10;
+    const H = rows.length * (barH + gap) + 4;
+    const max = opts.max || Math.max(...rows.map(r => r.value), 1);
+    const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img", "aria-label": opts.title || "bar chart" }, host);
+    const x0 = labelW, span = W - labelW - valueW;
+    svgEl("line", { x1: x0, x2: x0, y1: 0, y2: H - 4, stroke: "var(--axis)" }, svg);
+    rows.forEach((r, i) => {
+      const y = i * (barH + gap) + 2, w = Math.max(r.value > 0 ? 2 : 0, span * r.value / max);
+      svgEl("text", { x: x0 - 8, y: y + barH / 2 + 4, "text-anchor": "end" }, svg, r.label);
+      const g = svgEl("g", {}, svg);
+      svgEl("rect", { x: x0, y: y - gap / 2, width: span + valueW, height: barH + gap, fill: "transparent" }, g);  // hit area
+      if (w > 0) svgEl("path", { d: hbarPath(x0, y, w, barH), fill: r.color || "var(--have)" }, g);
+      svgEl("text", { x: x0 + w + 6, y: y + barH / 2 + 4, class: "val muted" }, g, r.text);
+      bindTip(g, r.text, r.label, r.extra);
+    });
+  }
+
+  // ---------- KPIs ----------
+  function kpis(list) {
+    const host = document.getElementById("kpis"); host.textContent = "";
+    const sent = list.filter(isSent), resp = sent.filter(responded);
+    const inter = list.filter(a => INTERVIEW.has(a.status)), offers = list.filter(a => ["Offer", "Accepted"].includes(a.status));
+    const matches = sent.map(a => a.match).filter(m => m !== null && m !== undefined);
+    const monday = new Date(today); monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+    const mondayIso = monday.toISOString().slice(0, 10);
+    const thisWeek = sent.filter(a => a.applied && a.applied >= mondayIso).length;
+    const week = D.weeks.find(w => w.week === mondayIso);
+    const tiles = [
+      ["Applications sent", sent.length, `${list.filter(a => a.status === "Tailored").length} tailored, not sent yet`],
+      ["Responses", resp.length, `${pct(resp.length, sent.length)}% of sent`],
+      ["Interview stage", inter.length, `${pct(inter.length, sent.length)}% of sent`],
+      ["Offers", offers.length, offers.length ? "compare before you accept" : "target: 1 by 31 Mar"],
+      ["Avg match", matches.length ? Math.round(matches.reduce((s, m) => s + m, 0) / matches.length) + "%" : "–", "keyword match of sent jobs"],
+      ["Follow-ups due", list.filter(followUp).length, `no reply after ${D.follow_days} days`],
+      ["This week", thisWeek, week ? `target ${week.target}` : "no target set"],
+    ];
+    for (const [label, value, note] of tiles) {
+      const t = node("div", { class: "tile" }, host);
+      node("div", { class: "label" }, t, label);
+      node("div", { class: "value" }, t, String(value));
+      node("div", { class: "note" }, t, note);
+    }
+  }
+
+  // ---------- charts ----------
+  function funnel(list) {
+    const sent = list.filter(isSent);
+    const stages = [
+      ["Sent", sent.length],
+      ["Responded", sent.filter(responded).length],
+      ["Interview stage", list.filter(a => INTERVIEW.has(a.status)).length],
+      ["Offer", list.filter(a => ["Offer", "Accepted"].includes(a.status)).length],
+    ];
+    hbars(document.getElementById("funnel"), sent.length ? stages.map(([label, v], i) => ({
+      label, value: v, text: i ? `${v} (${pct(v, sent.length)}%)` : String(v),
+      extra: i ? `${pct(v, sent.length)}% of sent` : "applications sent",
+    })) : [], { title: "Application funnel", empty: "No applications sent yet. After you submit one, run: python -m jobhunt applied <ID>" });
+  }
+
+  function weekly(list) {
+    const host = document.getElementById("weekly"); host.textContent = "";
+    const weeks = D.weeks;
+    if (!weeks.length) { node("div", { class: "empty" }, host, "No weekly targets in the tracker."); return; }
+    const counts = weeks.map((w, i) => {
+      const end = i + 1 < weeks.length ? weeks[i + 1].week : new Date(new Date(w.week + "T00:00:00").getTime() + 7 * 864e5).toISOString().slice(0, 10);
+      return list.filter(a => a.applied && a.applied >= w.week && a.applied < end).length;
+    });
+    const W = Math.max(300, host.clientWidth || 560), H = 200, left = 30, bottom = 26, top = 8, plotH = H - bottom - top;
+    const max = Math.max(...counts, ...weeks.map(w => w.target), 5);
+    const step = Math.ceil(max / 4 / 5) * 5 || 5, yMax = step * 4;
+    const band = (W - left) / weeks.length, bw = Math.max(6, band * 0.62);
+    const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img", "aria-label": "Applications per week against target" }, host);
+    for (let v = 0; v <= yMax; v += step) {
+      const y = top + plotH - plotH * v / yMax;
+      svgEl("line", { x1: left, x2: W, y1: y, y2: y, stroke: v ? "var(--grid)" : "var(--axis)" }, svg);
+      svgEl("text", { x: left - 6, y: y + 4, "text-anchor": "end", class: "muted val" }, svg, String(v));
+    }
+    const todayIso = D.today;
+    weeks.forEach((w, i) => {
+      const x = left + i * band + (band - bw) / 2, h = plotH * counts[i] / yMax, yT = top + plotH - plotH * w.target / yMax;
+      const g = svgEl("g", {}, svg);
+      svgEl("rect", { x: left + i * band, y: top, width: band, height: plotH, fill: "transparent" }, g);
+      if (h > 0) svgEl("path", { d: vbarPath(x, top + plotH - h, bw, h), fill: "var(--have)" }, g);
+      svgEl("line", { x1: x - 2, x2: x + bw + 2, y1: yT, y2: yT, stroke: "var(--ink)", "stroke-width": 2, "stroke-linecap": "round" }, g);
+      const future = w.week > todayIso;
+      bindTip(g, `${counts[i]} sent`, `Week of ${fmtDate(w.week)}`, `target ${w.target}${future ? " (upcoming)" : counts[i] >= w.target ? " (met)" : ` (${w.target - counts[i]} short)`}`);
+      if (i % Math.ceil(weeks.length / Math.max(2, Math.floor(W / 70))) === 0) svgEl("text", { x: left + i * band + band / 2, y: H - 8, "text-anchor": "middle", class: "muted" }, svg, fmtDate(w.week));
+    });
+  }
+
+  function market(list) {
+    const host = document.getElementById("market");
+    const items = state.scope === "all" ? [...list, ...leads()] : list;
+    const have = new Set(D.supported), domain = new Set(D.domain);
+    const count = new Map();
+    for (const it of items) for (const t of [...it.matched, ...it.missing]) if (!domain.has(t)) count.set(t, (count.get(t) || 0) + 1);
+    const top = [...count.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 16);
+    const n = items.length;
+    document.getElementById("market-sub").textContent = n
+      ? `Skills named in ${n} posting${n > 1 ? "s" : ""} (${state.scope === "all" ? "applications and found leads" : "your applications"}), most asked first`
+      : "Skills named in the postings you track, most asked first";
+    hbars(host, top.map(([term, c]) => ({
+      label: term, value: c, text: `${c} (${pct(c, n)}%)`, color: have.has(term) ? "var(--have)" : "var(--gap)",
+      extra: have.has(term) ? "on your profile" : "gap: not on your profile yet",
+    })), { title: "Skills the postings ask for", empty: "No postings yet. Tailor a resume with apply, or run discover." });
+  }
+
+  function byMatch(list) {
+    const sent = list.filter(isSent).filter(a => a.match !== null && a.match !== undefined);
+    const bands = [["80–100%", 80, 101], ["60–79%", 60, 80], ["40–59%", 40, 60], ["Under 40%", 0, 40]];
+    const rows = bands.map(([label, lo, hi]) => {
+      const inBand = sent.filter(a => a.match >= lo && a.match < hi), r = inBand.filter(responded).length;
+      return { label, value: pct(r, inBand.length), text: inBand.length ? `${pct(r, inBand.length)}% of ${inBand.length}` : "none sent",
+               extra: `${r} responded of ${inBand.length} sent` };
+    });
+    hbars(document.getElementById("by-match"), sent.length ? rows : [], { max: 100, title: "Response rate by match band",
+      empty: "Fills in once you've sent applications." });
+  }
+
+  function bySource(list) {
+    const sent = list.filter(isSent), groups = new Map();
+    for (const a of sent) { const g = groups.get(a.source) || [0, 0]; g[0]++; if (responded(a)) g[1]++; groups.set(a.source, g); }
+    const rows = [...groups.entries()].sort((a, b) => pct(b[1][1], b[1][0]) - pct(a[1][1], a[1][0]) || b[1][0] - a[1][0])
+      .map(([src, [n, r]]) => ({ label: src, value: pct(r, n), text: `${pct(r, n)}% of ${n}`, extra: `${r} responded of ${n} sent` }));
+    hbars(document.getElementById("by-source"), rows, { max: 100, title: "Response rate by source", empty: "Fills in once you've sent applications." });
+  }
+
+  // ---------- tables ----------
+  function chips(host, matched, missing) {
+    const box = node("div", { class: "chips" }, host);
+    matched.slice(0, 6).forEach(t => node("span", { class: "chip have", title: "on your profile" }, box, t));
+    if (matched.length > 6) node("span", { class: "chip more" }, box, `+${matched.length - 6}`);
+    missing.slice(0, 4).forEach(t => node("span", { class: "chip gap", title: "gap" }, box, t));
+    if (missing.length > 4) node("span", { class: "chip more" }, box, `+${missing.length - 4} gaps`);
+  }
+  function statusPill(host, a) {
+    const cls = ["Offer", "Accepted"].includes(a.status) ? "good" : a.status === "Rejected" ? "crit"
+      : INTERVIEW.has(a.status) ? "active" : "";
+    node("span", { class: `pill ${cls}` }, host, a.status);
+    if (followUp(a)) { node("br", {}, host); node("span", { class: "pill warn", title: "No reply yet: send a follow-up" }, host, "Follow up"); }
+  }
+  const COLS = [
+    ["id", "ID", a => a.id], ["company", "Company / role", a => (a.company || "").toLowerCase()], ["track", "Track", a => a.track],
+    ["match", "Match", a => a.match ?? -1], ["status", "Status", a => a.status], ["applied", "Applied", a => a.applied || ""],
+    ["days", "Days", a => days(a.applied) ?? -1], ["resp", "Response", a => a.last_email || ""],
+    [null, "Keywords: have / gap"], [null, "Files"],
+  ];
+  function appsTable(list) {
+    const table = document.getElementById("apps"); table.textContent = "";
+    const sent = list.filter(isSent).length;
+    document.getElementById("apps-sub").textContent = `${list.length} tracked, ${sent} sent. Click a column to sort.`;
+    if (!list.length) { const tr = node("tr", {}, table); node("td", { class: "empty" }, tr, "No applications yet. Run: python -m jobhunt apply --jd jd.txt --company \"...\" --role \"...\""); return; }
+    const head = node("tr", {}, node("thead", {}, table));
+    for (const [key, label] of COLS) {
+      const th = node("th", key ? { class: "sortable", scope: "col" } : { scope: "col" }, head,
+        label + (key && state.sort.key === key ? (state.sort.dir > 0 ? " ▲" : " ▼") : ""));
+      if (key) th.addEventListener("click", () => {
+        state.sort = { key, dir: state.sort.key === key ? -state.sort.dir : -1 }; render();
+      });
+    }
+    const get = (COLS.find(c => c[0] === state.sort.key) || [null, null, a => a.added || ""])[2];
+    const rows = [...list].sort((a, b) => { const x = get(a), y = get(b); return (x > y ? 1 : x < y ? -1 : 0) * state.sort.dir; });
+    const body = node("tbody", {}, table);
+    for (const a of rows) {
+      const tr = node("tr", {}, body);
+      node("td", { class: "num" }, tr, a.id || "");
+      const c = node("td", {}, tr); node("div", {}, c, a.company); node("div", { class: "role" }, c, a.role);
+      node("td", {}, tr, a.track);
+      const m = node("td", { class: "num" }, tr, a.match !== null && a.match !== undefined ? `${a.match}%` : "–");
+      if (a.match !== null && a.match !== undefined) { const b = node("div", { class: "bar" }, m); node("span", { style: `width:${a.match}%` }, b); }
+      statusPill(node("td", {}, tr), a);
+      node("td", { class: "num" }, tr, fmtDate(a.applied));
+      node("td", { class: "num" }, tr, a.applied ? String(days(a.applied)) : "–");
+      const r = node("td", {}, tr);
+      if (a.email) { node("div", {}, r, a.signal || "Email"); node("div", { class: "role" }, r, fmtDate(a.last_email)); }
+      else node("span", { class: "role" }, r, "none yet");
+      chips(node("td", {}, tr), a.matched, a.missing);
+      const f = node("td", { class: "files" }, tr);
+      if (a.resume) node("a", { href: a.resume }, f, "Resume");
+      if (a.report) node("a", { href: a.report }, f, "Report");
+      if (a.jd) node("a", { href: a.jd }, f, "JD");
+      if (a.url && /^https?:\/\//.test(a.url)) node("a", { href: a.url, target: "_blank", rel: "noopener" }, f, "Posting");
+    }
+  }
+  function leadsTable(list) {
+    const table = document.getElementById("leads"); table.textContent = "";
+    if (!list.length) { const tr = node("tr", {}, table); node("td", { class: "empty" }, tr, "No new leads. Run: python -m jobhunt discover"); return; }
+    const head = node("tr", {}, node("thead", {}, table));
+    ["Match", "Company / role", "Location", "Exp", "Keywords: have / gap", "Posted", "Next step"].forEach(h => node("th", { scope: "col" }, head, h));
+    const body = node("tbody", {}, table);
+    for (const l of list.slice(0, 40)) {
+      const tr = node("tr", {}, body);
+      const m = node("td", { class: "num" }, tr, `${l.score}%`); const b = node("div", { class: "bar" }, m); node("span", { style: `width:${l.score}%` }, b);
+      const c = node("td", {}, tr); node("div", {}, c, l.company);
+      const role = node("div", { class: "role" }, c);
+      if (l.url && /^https?:\/\//.test(l.url)) node("a", { href: l.url, target: "_blank", rel: "noopener", style: "color:inherit" }, role, l.title);
+      else role.textContent = l.title;
+      node("td", {}, tr, l.location);
+      node("td", { class: "num" }, tr, l.exp || "–");
+      chips(node("td", {}, tr), l.matched, l.missing);
+      node("td", { class: "num" }, tr, fmtDate(l.posted));
+      const n = node("td", {}, tr); node("code", {}, n, `python -m jobhunt apply --lead ${l.row}`);
+    }
+  }
+
+  // ---------- wiring ----------
+  function render() {
+    const list = apps();
+    kpis(list); funnel(list); weekly(list); market(list); byMatch(list); bySource(list); appsTable(list); leadsTable(leads());
+  }
+  document.getElementById("generated").textContent = `Built ${D.generated} from tracker.xlsx`;
+  document.getElementById("f-track").addEventListener("change", e => { state.track = e.target.value; render(); });
+  document.getElementById("f-period").addEventListener("change", e => { state.period = e.target.value; render(); });
+  document.getElementById("f-q").addEventListener("input", e => { state.q = e.target.value.trim().toLowerCase(); render(); });
+  document.querySelectorAll("[data-scope]").forEach(b => b.addEventListener("click", () => {
+    state.scope = b.dataset.scope;
+    document.querySelectorAll("[data-scope]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    market(apps());
+  }));
+  render();
+  let resizeTimer;
+  addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 150); });
+})();
+</script>
+</body>
+</html>

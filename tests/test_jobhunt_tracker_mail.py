@@ -39,7 +39,7 @@ def test_ids_followups_and_reopen(tracker: Tracker):
     assert again.find("A002")["status"] == "Interviewing"
     # validation and formulas survive an openpyxl round trip
     assert again.apps.data_validations.dataValidation
-    assert str(again.apps["Y2"].value).startswith("=IF(")
+    assert str(again.apps.cell(row=2, column=again.col["days_since"]).value).startswith("=IF(")
 
 
 def test_leads_are_deduplicated(tracker: Tracker):
@@ -118,3 +118,28 @@ def test_parse_message_reads_html_and_encoded_headers():
     assert m.sender.startswith("Groww Talent") and m.subject == "Interview invite"
     assert "schedule an interview" in m.body
     assert classify(m) == "Interview"
+
+
+@pytest.mark.parametrize("sender,subject,company,role,source", [
+    ("LinkedIn <jobs-noreply@linkedin.com>", "Vidit, your application was sent to Postman", "Postman", "(role not in email)", "LinkedIn"),
+    ("Naukri <info@naukri.com>", "You applied for Backend Developer at Juspay Technologies", "Juspay Technologies",
+     "Backend Developer", "Naukri"),
+    ("Chargebee Hiring Team <no-reply@greenhouse.io>", "Thank you for your application", "Chargebee", "(role not in email)",
+     "Company site"),
+])
+def test_application_from_email(sender, subject, company, role, source):
+    from jobhunt.mailsync import application_from_email
+    got = application_from_email(mail(sender, subject, "We have received your application."))
+    assert got == {"company": company, "role": role, "source": source}
+
+
+def test_confirmation_for_untracked_job_adds_a_row(tracker: Tracker):
+    m = mail("LinkedIn <jobs-noreply@linkedin.com>", "Vidit, your application was sent to Postman",
+             "Your application was sent to Postman.")
+    report = process(tracker, [m])
+    assert [n["company"] for _, n in report.added] == ["Postman"]
+    row = tracker.find("A004")
+    assert row["company"] == "Postman" and row["status"] == "Applied" and row["source"] == "LinkedIn"
+    # a promo from an untracked company adds nothing
+    process(tracker, [mail("Swiggy <offers@swiggy.in>", "Thank you for your order", "Order received")])
+    assert tracker.find("A005") is None

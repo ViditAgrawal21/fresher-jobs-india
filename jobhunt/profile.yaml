@@ -4,15 +4,18 @@
 # employers, skills or numbers that aren't in this file (see jobhunt/tailor.py guard).
 # Add a new fact here once and every future resume can use it.
 #
+# Sources: the resume PDF (Nov 2026), viditagrawal.in case studies, and Vidit's answers
+# (freelance Aug 2024 - May 2025 was paid; DEYE India RAG assistant at Sakalya; Urdu India
+# is still in development; app user counts are small/beta, so none are claimed).
+#
 # Phone and email are NOT stored here (this repo is public). They come from
 # CANDIDATE_PHONE and CANDIDATE_EMAIL in your local .env.
 
 name: Vidit Agrawal
 
-# Shown in summaries as "<years_of_experience> of experience". Resume dates add up to
-# ~1y8m full-time + a 4-month internship. Change to "2+ years" once the freelance period
-# (Aug 2024 - May 2025) is added as an experience entry below.
-years_of_experience: "2 years"
+# Shown in summaries as "<years_of_experience> of experience":
+# freelance Aug 2024 -> today, plus a 2023 internship.
+years_of_experience: "2+ years"
 
 links:
   - label: Portfolio
@@ -24,56 +27,70 @@ links:
 
 skills:
   - category: Languages
-    items: [TypeScript, JavaScript, Python, C++, SQL]
+    items: [TypeScript, JavaScript, Python, Rust, SQL, Kotlin, Dart, C#, C++]
   - category: Backend
-    items: [Node.js, NestJS, Express.js, FastAPI, REST APIs, Redis, BullMQ, WebSockets]
+    items: [Node.js, NestJS, Express.js, Rust (Axum), FastAPI, REST APIs, Prisma, TypeORM, Redis, BullMQ, WebSockets]
   - category: Frontend & Mobile
-    items: [React, Next.js, React Native, Flutter, Redux Toolkit, Tailwind CSS]
+    items: [React Native, React, Next.js, Expo, Flutter, Redux Toolkit, Tailwind CSS, Three.js]
   - category: Databases
-    items: [PostgreSQL, MySQL, Supabase, Firebase]
+    items: [PostgreSQL, MongoDB, Supabase, MySQL, SQL Server, Firebase]
   - category: Cloud & DevOps
-    items: [AWS Lambda, S3, EC2, Athena, GCP Cloud Run, Docker, Linux, CI/CD, GitHub Actions, Vercel]
+    items: [GCP Cloud Run, AWS Lambda, S3, SES, EC2, Athena, Cloudflare Workers, Docker, GitHub Actions, CI/CD, Linux, Vercel]
   - category: AI Engineering
-    # Add "RAG" here only once there is a project or job bullet that shows it.
-    items: [LLM Integration, Claude API, Structured Outputs, Prompt Caching, LLM Evals, MCP, Ollama, Claude Code, Agent Orchestration, Tool Calling]
+    items: [RAG, LLM Integration, OpenAI API, Gemini API, Claude API, Structured Outputs, Prompt Caching, LLM Evals, MCP, Tool Calling, Agent Orchestration, Claude Code, Ollama]
 
 experience:
   - id: sakalya
     company: Sakalya Technologies Pvt. Ltd.
     title: Software Engineer
-    location: India
+    location: Pune, India
     start: Mar 2026
     end: Present
     # Tech a reworded bullet for this job may mention (beyond what the bullet itself says).
-    stack: [Next.js, NestJS, Node.js, Supabase, PostgreSQL, React Native, AWS S3, GCP Cloud Run, REST APIs]
+    stack: [Rust, Axum, Tokio, MongoDB, Next.js, Three.js, Cloudflare Workers, GCP Cloud Run, AWS S3, AWS SES,
+            RAG, LLM, OpenAI, NestJS, TypeORM, PostgreSQL, BullMQ, Redis, Node.js, Express.js, Supabase,
+            React Native, Expo, Razorpay, Firebase Cloud Messaging, Playwright, GitHub Actions, REST APIs, TypeScript]
     bullets:
-      - id: sakalya-lead
-        text: Independently led end-to-end engineering and delivery of Urdu India, a digital news platform, and MyDwarpal, a multi-tenant society management SaaS.
-        tags: [leadership, backend, fullstack, mobile, ai]
-      - id: sakalya-urdu
-        text: Built Urdu India's web and backend systems using Next.js, NestJS, and Supabase, integrating AI summarization, translation, media workflows, and live-streaming features.
-        tags: [fullstack, backend, ai]
+      - id: sakalya-deye
+        text: Led the DEYE India digital platform from approved plan to live on dev, stage and production in one week, with a Rust (Axum, Tokio) API on MongoDB Atlas deployed to GCP Cloud Run and a Next.js site and Studio CMS on Cloudflare Workers.
+        tags: [leadership, backend, fullstack, ai]
+      - id: sakalya-rag
+        # Ask Vidit for the retrieval stack (embeddings, vector store, model) to make this sharper.
+        text: Built DEYE India's AI assistant with retrieval-augmented generation (RAG) and LLM integration.
+        tags: [ai, backend]
+      - id: sakalya-deye-ops
+        text: Built DEYE India's dealer lead desk (product calculators, structured follow-ups, Excel export) and a service-complaints CRM with tracking and update emails through AWS SES, behind a manual approval gate for production releases.
+        tags: [backend, fullstack]
       - id: sakalya-dwarpal
-        text: Developed MyDwarpal's mobile and backend workflows using React Native, Node.js, and Supabase, implementing role-based access, resident operations, and visitor management.
-        tags: [mobile, backend, fullstack]
+        text: Led MyDwarpal, a multi-tenant residential community SaaS, from scratch to production, with React Native and Next.js apps on an Express and Supabase backend, phone OTP sign-in, QR gate entry, delivery tracking and Razorpay society payments.
+        tags: [leadership, mobile, fullstack, backend]
+      - id: sakalya-urdu
+        text: Building Urdu India, a multilingual news platform still in development, with a NestJS and TypeORM API on PostgreSQL, BullMQ and Redis publishing queues, and OpenAI language detection and translation.
+        tags: [backend, ai]
       - id: sakalya-infra
         text: Designed REST APIs, database workflows, authentication, AWS S3 media storage, and GCP Cloud Run deployments.
-        tags: [backend, fullstack, ai]
+        tags: [backend]
+      - id: sakalya-lead
+        text: Lead client platforms built from scratch, owning architecture, delivery and releases across Android, iOS, web, APIs and cloud, and working directly with each client.
+        tags: [leadership, fullstack, mobile]
 
   - id: synept
     company: Synept Labs
     title: Software Engineer
-    location: India
+    location: Pune, India
     start: Oct 2025
     end: Mar 2026
-    stack: [React Native, REST APIs]
+    stack: [React Native, TypeScript, Android, iOS, REST APIs]
     bullets:
-      - id: synept-features
-        text: Developed React Native application features, integrating APIs, authentication flows, and cross-platform mobile workflows.
-        tags: [mobile, fullstack, backend]
+      - id: synept-lead
+        text: Led the React Native platform apps for Android and iOS, owning UI architecture, performance and releases.
+        tags: [mobile, leadership, fullstack]
       - id: synept-perf
-        text: Worked on local data persistence, token refresh mechanisms, and mobile performance optimization.
+        text: Cut load latency with caching strategies and optimised data handling, and built local data persistence and token refresh mechanisms.
         tags: [mobile, backend]
+      - id: synept-nav
+        text: Built the navigation architecture, authentication flows and a minimal component system used across the apps.
+        tags: [mobile, fullstack]
 
   - id: technowings
     company: Technowings Automation Pvt. Ltd.
@@ -81,26 +98,59 @@ experience:
     location: Pune, India
     start: May 2025
     end: Oct 2025
-    stack: [Flutter, ESP32, Bluetooth, WebSockets]
+    stack: [Flutter, Dart, ESP32, Bluetooth, WebSockets, Node.js]
     bullets:
-      - id: technowings-apps
-        text: Developed Flutter applications for industrial automation, including air-leak testing, AMR fleet management, and stock management systems.
+      - id: technowings-leak
+        text: Built the Flutter Air Leak Tester app from scratch to production, cutting manual testing time by 60%.
         tags: [mobile]
+      - id: technowings-amr
+        text: Built the AMR fleet management system, keeping the vehicle fleet at 90.5% uptime.
+        tags: [mobile, backend, fullstack]
       - id: technowings-iot
         text: Integrated ESP32 devices and real-time communication using Bluetooth and WebSockets for device monitoring and control.
         tags: [backend, mobile]
       - id: technowings-reports
-        text: Implemented application workflows, reporting features, and industrial data handling.
-        tags: [mobile, fullstack]
+        text: Implemented application workflows, reporting features, and industrial data handling, including stock management.
+        tags: [mobile]
+
+  - id: freelance
+    company: Freelance (client projects)
+    title: Software Engineer
+    location: Pune, India
+    start: Aug 2024
+    end: May 2025
+    stack: [React Native, Express.js, Supabase, PostgreSQL, Gemini, WhatsApp Cloud API, Python, Playwright,
+            OpenPyXL, Tkinter, C#, .NET, SQL Server, NFC]
+    bullets:
+      - id: freelance-crm
+        text: Built Surnar & Co.'s real estate CRM end to end (React Native app, Express API on Supabase, owner dashboard), handling 100+ leads a day with a role hierarchy and workload-based lead routing.
+        tags: [fullstack, backend, mobile]
+      - id: freelance-crm-ai
+        # The case study dates the copilot to 2026, hence "later".
+        text: Later added a WhatsApp Cloud API inbox to the CRM with a Gemini AI copilot that answers new enquiries and drafts replies sent only after approval.
+        tags: [ai, backend]
+        follows: freelance-crm
+      - id: freelance-fasal
+        text: Automated KCC loan and insurance-claim submissions on the government Fasal Rin portal with Python and Playwright, processing thousands of Excel records without manual entry.
+        tags: [backend, ai]
+      - id: freelance-paylist
+        text: Built a Windows desktop system in C# and .NET with SQL Server and Excel exports that prepares school staff pay lists.
+        tags: [backend]
+      - id: freelance-patrol
+        text: Built Planet Patrol, an NFC-based patrol system app in React Native.
+        tags: [mobile]
 
   - id: maxgen
     company: Maxgen Pvt. Ltd.
     title: Software Development Intern
-    location: India
+    location: Pune, India
     start: Aug 2023
     end: Nov 2023
-    stack: [React, JavaScript, HTML, CSS]
+    stack: [React, React Native, JavaScript, HTML, CSS, SQL]
     bullets:
+      - id: maxgen-analytics
+        text: Built a real-time analytics dashboard for monitoring 20+ employees and optimized database queries.
+        tags: [fullstack, backend]
       - id: maxgen-web
         text: Developed web application components using React.js, JavaScript, HTML, and CSS.
         tags: [fullstack]
@@ -109,7 +159,8 @@ projects:
   - id: fji
     name: Fresher Jobs India
     url: https://beep.viditagrawal.in
-    stack: [Python, FastAPI, PostgreSQL, Claude API, React, GCP Cloud Run, Docker, Neon, Vercel, GitHub Actions]
+    stack: [Python, FastAPI, PostgreSQL, Claude API, LLM, LLM Evals, Structured Outputs, Prompt Caching, React,
+            GCP Cloud Run, Docker, Neon, Vercel, GitHub Actions]
     stack_line: Python, FastAPI, PostgreSQL, Claude API, React, GCP Cloud Run
     bullets:
       - id: fji-pipeline
@@ -125,14 +176,17 @@ projects:
         text: Served Postgres full-text and trigram search through a FastAPI API and a React app, deployed on GCP Cloud Run with Cloud Scheduler, Neon Postgres, Vercel and GitHub Actions CI.
         tags: [backend, fullstack]
 
-  - id: crm
-    name: Real Estate CRM Platform
-    stack: [React Native, Node.js, PostgreSQL, Supabase]
-    stack_line: React Native, Node.js, PostgreSQL, Supabase
+  - id: geopunch
+    name: GeoPunch - Attendance and Payroll SaaS (freelance)
+    stack: [React Native, React, NestJS, Prisma, PostgreSQL, Razorpay, GCP Cloud Run]
+    stack_line: React Native, NestJS, Prisma, PostgreSQL, Razorpay
     bullets:
-      - id: crm-core
-        text: Built a multi-tenant CRM with lead management, role hierarchy, database design, and backend APIs; worked on lead integrations, assignment workflows, dashboards, and analytics.
-        tags: [backend, fullstack, mobile]
+      - id: geopunch-product
+        text: Built and shipped the whole product end to end (React Native app, NestJS and Prisma API on PostgreSQL, React admin dashboard and marketing site), with architecture decisions recorded as ADRs.
+        tags: [fullstack, backend, mobile]
+      - id: geopunch-features
+        text: Implemented face-verified, geofenced punch-in with multi-angle enrolment, payroll runs with month lock and payslips, and Razorpay subscriptions.
+        tags: [mobile, backend, fullstack]
 
   - id: elt
     name: Serverless ELT Data Pipeline
@@ -142,27 +196,6 @@ projects:
       - id: elt-core
         text: Built a serverless ELT pipeline using AWS Lambda and S3 to process and organize data for analytical queries through Amazon Athena.
         tags: [backend, ai]
-
-  - id: fasal
-    name: Government Portal Automation Suite - Fasal Rin
-    stack: [Python, Playwright, Tkinter, OpenPyXL]
-    stack_line: Python, Playwright, Tkinter, OpenPyXL
-    bullets:
-      - id: fasal-core
-        text: Built desktop automation tools for KCC loan applications and insurance claim submissions through the Fasal Rin portal.
-        tags: [backend, ai]
-      - id: fasal-data
-        text: Processed Excel datasets with 30+ columns, automated record and ID generation, and implemented a Tkinter interface with session persistence, encrypted profiles, CAPTCHA handling, and live execution logs.
-        tags: [backend]
-
-  - id: schoolfee
-    name: School Fee Payment System - Freelance Banking Project
-    stack: []
-    stack_line: Payment Workflow Development
-    bullets:
-      - id: schoolfee-core
-        text: Developed a school fee payment system for a banking client, translating operational requirements into a structured digital payment workflow.
-        tags: [backend, fullstack]
 
 education:
   - school: Pimpri Chinchwad College of Engineering, Pune
@@ -185,29 +218,29 @@ achievements:
 tracks:
   backend:
     label: Backend
-    headline: Software Engineer | Backend Systems | AI Engineering
-    summary: Software engineer with {experience} of experience building Node.js and NestJS backends, REST APIs and PostgreSQL data models on AWS and GCP. Shipped two products end to end and built an LLM data pipeline with measured accuracy and cost.
+    headline: Software Engineer | Backend Systems (Node.js, NestJS, Rust) | AI Engineering
+    summary: Software engineer with {experience} of experience building Node.js, NestJS and Rust (Axum) backends, REST APIs and PostgreSQL/MongoDB data models on GCP and AWS. Led the DEYE India platform from plan to production in one week and built LLM features, including a RAG assistant.
     skill_order: [Backend, Languages, Databases, Cloud & DevOps, AI Engineering, Frontend & Mobile]
-    projects: [fji, crm, elt, fasal]
+    projects: [fji, geopunch, elt]
     title_pattern: "backend|back-end|node|nest|api|platform|server|sde|software engineer|software developer"
   fullstack:
     label: Full Stack
-    headline: Full Stack Engineer | Next.js, NestJS, Node.js | AI Engineering
-    summary: Full stack engineer with {experience} of experience shipping Next.js, React Native and NestJS products on Supabase, AWS and GCP, including two products built end to end. Also builds LLM features and pipelines with measured accuracy and cost.
+    headline: Full Stack Engineer | Next.js, React Native, Node.js | AI Engineering
+    summary: Full stack engineer with {experience} of experience shipping Next.js, React Native and Node.js products on Supabase, GCP and AWS, from client CRMs and a payroll SaaS to the DEYE India platform, taken live on three environments in one week.
     skill_order: [Frontend & Mobile, Backend, Languages, Databases, Cloud & DevOps, AI Engineering]
-    projects: [fji, crm, schoolfee, elt]
-    title_pattern: "full[ -]?stack|fullstack|mern|product engineer|web developer|software engineer|sde"
+    projects: [fji, geopunch, elt]
+    title_pattern: "full[ -]?stack|fullstack|mern|product engineer|web developer|forward deployed|software engineer|sde"
   ai:
     label: AI Engineer
-    headline: AI Engineer | LLM Applications, Agents, Evals | Backend Systems
-    summary: Software engineer with {experience} of experience who builds LLM-powered products, from AI summarization and translation in a news platform to a Claude-based tagging pipeline evaluated on hand-checked data. Strong backend base in Node.js, NestJS, Python and PostgreSQL.
+    headline: AI Engineer | RAG, LLM Applications, Evals | Backend Systems
+    summary: Software engineer with {experience} of experience building LLM features in production products, including a RAG assistant for DEYE India, a Gemini WhatsApp copilot for a real estate CRM, OpenAI translation pipelines and a Claude tagging pipeline evaluated on hand-checked data.
     skill_order: [AI Engineering, Languages, Backend, Databases, Cloud & DevOps, Frontend & Mobile]
-    projects: [fji, elt, fasal, crm]
-    title_pattern: "\\bai\\b|genai|gen ai|llm|machine learning|\\bml\\b|applied|agent|nlp"
+    projects: [fji, elt, geopunch]
+    title_pattern: "\\bai\\b|genai|gen ai|llm|machine learning|\\bml\\b|applied|agent|nlp|forward deployed"
   mobile:
     label: Mobile
-    headline: Software Engineer | React Native, Flutter, Node.js | Mobile and Backend
-    summary: Software engineer with {experience} of experience building React Native and Flutter apps with Node.js and Supabase backends, from a multi-tenant society management SaaS to industrial IoT apps talking to ESP32 devices.
-    skill_order: [Frontend & Mobile, Backend, Languages, Databases, Cloud & DevOps, AI Engineering]
-    projects: [crm, fji, fasal, elt]
+    headline: Mobile Engineer | React Native, Flutter | Android and iOS
+    summary: Mobile engineer with {experience} of experience shipping React Native and Flutter apps for Android and iOS, from a residential community SaaS and a geofenced attendance app to industrial IoT apps talking to ESP32 devices.
+    skill_order: [Frontend & Mobile, Languages, Backend, Databases, Cloud & DevOps, AI Engineering]
+    projects: [geopunch, fji, elt]
     title_pattern: "mobile|react native|flutter|android|ios|app developer"
