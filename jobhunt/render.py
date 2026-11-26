@@ -93,8 +93,8 @@ def _drop_bullet(entry) -> str:
 def _next_cut(doc: ResumeDoc, min_projects: int) -> str | None:
     """Apply the cheapest remaining cut to `doc` in place and describe it; None when nothing is left to cut.
 
-    Order: tighter layout, a 4th project, extra bullets on older jobs and lower-ranked
-    projects, the top project down to 3 bullets, then whole projects, then the top
+    Order: tighter layout, a 4th project, extra bullets on lower-ranked projects, then on
+    older jobs, the top project down to 3 bullets, then whole projects, then the top
     project down to 2 bullets. The current job keeps at least 3 bullets.
     """
     first, rest = (doc.projects[0], doc.projects[1:]) if doc.projects else (None, [])
@@ -103,10 +103,10 @@ def _next_cut(doc: ResumeDoc, min_projects: int) -> str | None:
         return "compact layout"
     if len(doc.projects) > 3:
         return f"dropped project {doc.projects.pop().heading}"
-    if (e := _last_with_extra_bullets(doc.experience[2:])) is not None:
-        return _drop_bullet(e)
     if (p := _last_with_extra_bullets(rest)) is not None:
         return _drop_bullet(p)
+    if (e := _last_with_extra_bullets(doc.experience[2:])) is not None:
+        return _drop_bullet(e)
     if first is not None and len(first.bullets) > 3:
         return _drop_bullet(first)
     if len(doc.experience) > 1 and len(doc.experience[1].bullets) > 1:

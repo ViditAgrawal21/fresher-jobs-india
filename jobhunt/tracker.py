@@ -319,7 +319,7 @@ def _dashboard(ws) -> None:
         t = ws.cell(row=i, column=2, value=target)
         t.font = INPUT_FONT
         ws.cell(row=i, column=3, value=f'=COUNTIFS({ap},">="&A{i},{ap},"<"&(A{i}+7))').font = BODY_FONT
-        g = ws.cell(row=i, column=4, value=f"=C{i}-B{i}")
+        g = ws.cell(row=i, column=4, value=f'=IF(A{i}>TODAY(),"",C{i}-B{i})')  # only weeks that have started
         g.font, g.number_format = BODY_FONT, "+0;-0;0"
     last = wstart + len(WEEK_TARGETS)
     ws.cell(row=wstart, column=2).comment = Comment(
@@ -333,7 +333,7 @@ def _dashboard(ws) -> None:
     ws.cell(row=tot, column=1, value="Total").font = BOLD
     ws.cell(row=tot, column=2, value=f"=SUM(B{wstart + 1}:B{last})").font = BOLD
     ws.cell(row=tot, column=3, value=f"=SUM(C{wstart + 1}:C{last})").font = BOLD
-    ws.cell(row=tot, column=4, value=f"=C{tot}-B{tot}").font = BOLD
+    ws.cell(row=tot, column=4, value=f"=SUM(D{wstart + 1}:D{last})").font = BOLD
     ws.cell(row=tot, column=4).number_format = "+0;-0;0"
 
     for col, width in zip("ABCDEFGHIJ", (34, 12, 2, 14, 9, 2, 22, 9, 9, 11)):
