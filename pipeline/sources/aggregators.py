@@ -40,6 +40,7 @@ class AdzunaSource(Source):
 
     name = "adzuna"
     delay = 1.0
+    queries: list[str] = FRESHER_QUERIES  # jobhunt.discover swaps in experienced-role queries
 
     @property
     def enabled(self) -> bool:
@@ -49,7 +50,7 @@ class AdzunaSource(Source):
     def fetch(self) -> list[RawPost]:
         s = get_settings()
         seen: dict[str, RawPost] = {}
-        for query in FRESHER_QUERIES:
+        for query in self.queries:
             for page in range(1, s.adzuna_pages_per_query + 1):
                 data = self.get_json(
                     f"https://api.adzuna.com/v1/api/jobs/in/search/{page}",

@@ -24,3 +24,6 @@ notes/
 
 # local submission bundle (copies + private script)
 submission/
+
+# personal job-hunt data: tracker, tailored resumes, mail sync state (repo is public)
+jobhunt/data/

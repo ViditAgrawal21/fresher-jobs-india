@@ -1,0 +1,213 @@
+# Master profile: the ONLY facts a tailored resume may use.
+#
+# Tailoring (LLM or offline) picks, orders and rewords what is here; it never adds
+# employers, skills or numbers that aren't in this file (see jobhunt/tailor.py guard).
+# Add a new fact here once and every future resume can use it.
+#
+# Phone and email are NOT stored here (this repo is public). They come from
+# CANDIDATE_PHONE and CANDIDATE_EMAIL in your local .env.
+
+name: Vidit Agrawal
+
+# Shown in summaries as "<years_of_experience> of experience". Resume dates add up to
+# ~1y8m full-time + a 4-month internship. Change to "2+ years" once the freelance period
+# (Aug 2024 - May 2025) is added as an experience entry below.
+years_of_experience: "2 years"
+
+links:
+  - label: Portfolio
+    url: https://www.viditagrawal.in
+  - label: GitHub
+    url: https://github.com/ViditAgrawal21
+  - label: LinkedIn
+    url: https://www.linkedin.com/in/vidit-agrawal-604010223/
+
+skills:
+  - category: Languages
+    items: [TypeScript, JavaScript, Python, C++, SQL]
+  - category: Backend
+    items: [Node.js, NestJS, Express.js, FastAPI, REST APIs, Redis, BullMQ, WebSockets]
+  - category: Frontend & Mobile
+    items: [React, Next.js, React Native, Flutter, Redux Toolkit, Tailwind CSS]
+  - category: Databases
+    items: [PostgreSQL, MySQL, Supabase, Firebase]
+  - category: Cloud & DevOps
+    items: [AWS Lambda, S3, EC2, Athena, GCP Cloud Run, Docker, Linux, CI/CD, GitHub Actions, Vercel]
+  - category: AI Engineering
+    # Add "RAG" here only once there is a project or job bullet that shows it.
+    items: [LLM Integration, Claude API, Structured Outputs, Prompt Caching, LLM Evals, MCP, Ollama, Claude Code, Agent Orchestration, Tool Calling]
+
+experience:
+  - id: sakalya
+    company: Sakalya Technologies Pvt. Ltd.
+    title: Software Engineer
+    location: India
+    start: Mar 2026
+    end: Present
+    # Tech a reworded bullet for this job may mention (beyond what the bullet itself says).
+    stack: [Next.js, NestJS, Node.js, Supabase, PostgreSQL, React Native, AWS S3, GCP Cloud Run, REST APIs]
+    bullets:
+      - id: sakalya-lead
+        text: Independently led end-to-end engineering and delivery of Urdu India, a digital news platform, and MyDwarpal, a multi-tenant society management SaaS.
+        tags: [leadership, backend, fullstack, mobile, ai]
+      - id: sakalya-urdu
+        text: Built Urdu India's web and backend systems using Next.js, NestJS, and Supabase, integrating AI summarization, translation, media workflows, and live-streaming features.
+        tags: [fullstack, backend, ai]
+      - id: sakalya-dwarpal
+        text: Developed MyDwarpal's mobile and backend workflows using React Native, Node.js, and Supabase, implementing role-based access, resident operations, and visitor management.
+        tags: [mobile, backend, fullstack]
+      - id: sakalya-infra
+        text: Designed REST APIs, database workflows, authentication, AWS S3 media storage, and GCP Cloud Run deployments.
+        tags: [backend, fullstack, ai]
+
+  - id: synept
+    company: Synept Labs
+    title: Software Engineer
+    location: India
+    start: Oct 2025
+    end: Mar 2026
+    stack: [React Native, REST APIs]
+    bullets:
+      - id: synept-features
+        text: Developed React Native application features, integrating APIs, authentication flows, and cross-platform mobile workflows.
+        tags: [mobile, fullstack, backend]
+      - id: synept-perf
+        text: Worked on local data persistence, token refresh mechanisms, and mobile performance optimization.
+        tags: [mobile, backend]
+
+  - id: technowings
+    company: Technowings Automation Pvt. Ltd.
+    title: Software Engineer
+    location: Pune, India
+    start: May 2025
+    end: Oct 2025
+    stack: [Flutter, ESP32, Bluetooth, WebSockets]
+    bullets:
+      - id: technowings-apps
+        text: Developed Flutter applications for industrial automation, including air-leak testing, AMR fleet management, and stock management systems.
+        tags: [mobile]
+      - id: technowings-iot
+        text: Integrated ESP32 devices and real-time communication using Bluetooth and WebSockets for device monitoring and control.
+        tags: [backend, mobile]
+      - id: technowings-reports
+        text: Implemented application workflows, reporting features, and industrial data handling.
+        tags: [mobile, fullstack]
+
+  - id: maxgen
+    company: Maxgen Pvt. Ltd.
+    title: Software Development Intern
+    location: India
+    start: Aug 2023
+    end: Nov 2023
+    stack: [React, JavaScript, HTML, CSS]
+    bullets:
+      - id: maxgen-web
+        text: Developed web application components using React.js, JavaScript, HTML, and CSS.
+        tags: [fullstack]
+
+projects:
+  - id: fji
+    name: Fresher Jobs India
+    url: https://beep.viditagrawal.in
+    stack: [Python, FastAPI, PostgreSQL, Claude API, React, GCP Cloud Run, Docker, Neon, Vercel, GitHub Actions]
+    stack_line: Python, FastAPI, PostgreSQL, Claude API, React, GCP Cloud Run
+    bullets:
+      - id: fji-pipeline
+        text: Built a daily job pipeline that collects posts from the Adzuna API and Greenhouse, Lever, Ashby and SmartRecruiters boards, then normalizes and deduplicates them with union-find.
+        tags: [backend, ai, fullstack]
+      - id: fji-llm
+        text: Tagged 1,937 posts by role and city with Claude Haiku using batched structured outputs and prompt caching, at $0.0985 per 1,000 posts.
+        tags: [ai, backend]
+      - id: fji-eval
+        text: Evaluated the tagger on 50 hand-checked posts (84% role, 96% city accuracy); a Sonnet comparison fell within run-to-run noise at 20x the cost, so Haiku stayed in production.
+        tags: [ai]
+      - id: fji-serve
+        text: Served Postgres full-text and trigram search through a FastAPI API and a React app, deployed on GCP Cloud Run with Cloud Scheduler, Neon Postgres, Vercel and GitHub Actions CI.
+        tags: [backend, fullstack]
+
+  - id: crm
+    name: Real Estate CRM Platform
+    stack: [React Native, Node.js, PostgreSQL, Supabase]
+    stack_line: React Native, Node.js, PostgreSQL, Supabase
+    bullets:
+      - id: crm-core
+        text: Built a multi-tenant CRM with lead management, role hierarchy, database design, and backend APIs; worked on lead integrations, assignment workflows, dashboards, and analytics.
+        tags: [backend, fullstack, mobile]
+
+  - id: elt
+    name: Serverless ELT Data Pipeline
+    stack: [Python, AWS Lambda, S3, Athena]
+    stack_line: Python, AWS Lambda, S3, Athena
+    bullets:
+      - id: elt-core
+        text: Built a serverless ELT pipeline using AWS Lambda and S3 to process and organize data for analytical queries through Amazon Athena.
+        tags: [backend, ai]
+
+  - id: fasal
+    name: Government Portal Automation Suite - Fasal Rin
+    stack: [Python, Playwright, Tkinter, OpenPyXL]
+    stack_line: Python, Playwright, Tkinter, OpenPyXL
+    bullets:
+      - id: fasal-core
+        text: Built desktop automation tools for KCC loan applications and insurance claim submissions through the Fasal Rin portal.
+        tags: [backend, ai]
+      - id: fasal-data
+        text: Processed Excel datasets with 30+ columns, automated record and ID generation, and implemented a Tkinter interface with session persistence, encrypted profiles, CAPTCHA handling, and live execution logs.
+        tags: [backend]
+
+  - id: schoolfee
+    name: School Fee Payment System - Freelance Banking Project
+    stack: []
+    stack_line: Payment Workflow Development
+    bullets:
+      - id: schoolfee-core
+        text: Developed a school fee payment system for a banking client, translating operational requirements into a structured digital payment workflow.
+        tags: [backend, fullstack]
+
+education:
+  - school: Pimpri Chinchwad College of Engineering, Pune
+    degree: B.Tech - Electronics and Telecommunication Engineering
+    date: Aug 2024
+    grade: "CGPA: 7.5/10"
+  - school: Brijlal Biyani College of Science, Amravati
+    degree: Higher Secondary Certificate (HSC - Class XII)
+    date: Mar 2020
+    grade: "81%"
+  - school: Dnyanmata High School, Amravati
+    degree: Secondary School Certificate (SSC - Class X)
+    date: Mar 2018
+    grade: "90%"
+
+achievements:
+  - "LeetCode: 200+ Problems | GeeksforGeeks: 200+ Problems | HackerRank: C++ 4-Star"
+
+# One resume "track" per kind of role. Tailoring picks the closest track, then adapts it.
+tracks:
+  backend:
+    label: Backend
+    headline: Software Engineer | Backend Systems | AI Engineering
+    summary: Software engineer with {experience} of experience building Node.js and NestJS backends, REST APIs and PostgreSQL data models on AWS and GCP. Shipped two products end to end and built an LLM data pipeline with measured accuracy and cost.
+    skill_order: [Backend, Languages, Databases, Cloud & DevOps, AI Engineering, Frontend & Mobile]
+    projects: [fji, crm, elt, fasal]
+    title_pattern: "backend|back-end|node|nest|api|platform|server|sde|software engineer|software developer"
+  fullstack:
+    label: Full Stack
+    headline: Full Stack Engineer | Next.js, NestJS, Node.js | AI Engineering
+    summary: Full stack engineer with {experience} of experience shipping Next.js, React Native and NestJS products on Supabase, AWS and GCP, including two products built end to end. Also builds LLM features and pipelines with measured accuracy and cost.
+    skill_order: [Frontend & Mobile, Backend, Languages, Databases, Cloud & DevOps, AI Engineering]
+    projects: [fji, crm, schoolfee, elt]
+    title_pattern: "full[ -]?stack|fullstack|mern|product engineer|web developer|software engineer|sde"
+  ai:
+    label: AI Engineer
+    headline: AI Engineer | LLM Applications, Agents, Evals | Backend Systems
+    summary: Software engineer with {experience} of experience who builds LLM-powered products, from AI summarization and translation in a news platform to a Claude-based tagging pipeline evaluated on hand-checked data. Strong backend base in Node.js, NestJS, Python and PostgreSQL.
+    skill_order: [AI Engineering, Languages, Backend, Databases, Cloud & DevOps, Frontend & Mobile]
+    projects: [fji, elt, fasal, crm]
+    title_pattern: "\\bai\\b|genai|gen ai|llm|machine learning|\\bml\\b|applied|agent|nlp"
+  mobile:
+    label: Mobile
+    headline: Software Engineer | React Native, Flutter, Node.js | Mobile and Backend
+    summary: Software engineer with {experience} of experience building React Native and Flutter apps with Node.js and Supabase backends, from a multi-tenant society management SaaS to industrial IoT apps talking to ESP32 devices.
+    skill_order: [Frontend & Mobile, Backend, Languages, Databases, Cloud & DevOps, AI Engineering]
+    projects: [crm, fji, fasal, elt]
+    title_pattern: "mobile|react native|flutter|android|ios|app developer"

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ r.name }} - Resume</title>
+<style>
+  @page { size: A4; margin: {{ '9mm 11mm' if r.density == 'compact' else '11mm 13mm' }}; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; }
+  body {
+    margin: 0; color: #111;
+    font-family: Arial, "Liberation Sans", Helvetica, sans-serif;
+    font-size: {{ '9.1pt' if r.density == 'compact' else '9.6pt' }};
+    line-height: {{ '1.22' if r.density == 'compact' else '1.28' }};
+  }
+  a { color: inherit; text-decoration: none; }
+  header { text-align: center; margin-bottom: 4pt; }
+  h1 { font-size: 20pt; margin: 0 0 1pt; letter-spacing: 0.2pt; }
+  .headline { font-size: 10.5pt; margin-bottom: 2pt; }
+  .contact { font-size: 9.2pt; }
+  .sep { padding: 0 5pt; color: #555; }
+  section { margin-top: {{ '4pt' if r.density == 'compact' else '6pt' }}; }
+  h2 {
+    font-size: 10.5pt; text-transform: uppercase; margin: 0 0 2pt;
+    border-bottom: 0.8pt solid #222; padding-bottom: 1pt; letter-spacing: 0.3pt;
+  }
+  .summary { margin: 0; }
+  .skills div { margin: 0.5pt 0; }
+  .entry { margin-top: {{ '2.5pt' if r.density == 'compact' else '3.5pt' }}; break-inside: avoid; }
+  .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8pt; }
+  .heading { font-weight: bold; font-size: 10pt; }
+  .sub { font-style: italic; }
+  .stack { font-size: 8.8pt; color: #222; white-space: nowrap; }
+  ul { margin: 1pt 0 0; padding-left: 13pt; }
+  li { margin: 0.6pt 0; }
+  .edu .heading { font-size: 9.6pt; }
+</style>
+</head>
+<body>
+<header>
+  <h1>{{ r.name }}</h1>
+  <div class="headline">{{ r.headline }}</div>
+  <div class="contact">
+    {%- for c in r.contact %}{% if not loop.first %}<span class="sep">|</span>{% endif %}{{ c }}{% endfor -%}
+  </div>
+  <div class="contact">
+    {%- for l in r.links %}{% if not loop.first %}<span class="sep">|</span>{% endif %}<a href="{{ l.url }}">{{ l.display }}</a>{% endfor -%}
+  </div>
+</header>
+
+{% if r.summary %}
+<section>
+  <h2>Summary</h2>
+  <p class="summary">{{ r.summary }}</p>
+</section>
+{% endif %}
+
+<section class="skills">
+  <h2>Technical Skills</h2>
+  {% for g in r.skills %}<div><b>{{ g.category }}:</b> {{ g.items | join(', ') }}</div>{% endfor %}
+</section>
+
+<section>
+  <h2>Experience</h2>
+  {% for e in r.experience %}
+  <div class="entry">
+    <div class="row"><span class="heading">{{ e.heading }}</span><span>{{ e.right }}</span></div>
+    <div class="row"><span class="sub">{{ e.subheading }}</span><span>{{ e.right_sub }}</span></div>
+    <ul>{% for b in e.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
+  </div>
+  {% endfor %}
+</section>
+
+{% if r.projects %}
+<section>
+  <h2>Projects</h2>
+  {% for p in r.projects %}
+  <div class="entry">
+    <div class="row">
+      <span class="heading">{{ p.heading }}{% if p.url %} <span class="sep">|</span><a href="{{ p.url }}" style="font-weight:normal">{{ p.url.split('://', 1)[-1] }}</a>{% endif %}</span>
+      <span class="stack">{{ p.subheading }}</span>
+    </div>
+    <ul>{% for b in p.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+<section class="edu">
+  <h2>Education</h2>
+  {% for ed in r.education %}
+  {% if loop.first %}
+  <div class="entry">
+    <div class="row"><span class="heading">{{ ed.school }}</span><span>{{ ed.date }}</span></div>
+    <div class="row"><span>{{ ed.degree }}</span><span>{{ ed.grade }}</span></div>
+  </div>
+  {% else %}
+  <div class="row"><span>{{ ed.degree }}, {{ ed.school }}</span><span>{{ ed.grade }}<span class="sep">|</span>{{ ed.date }}</span></div>
+  {% endif %}
+  {% endfor %}
+</section>
+
+{% if r.achievements %}
+<section>
+  <h2>Achievements</h2>
+  {% for a in r.achievements %}<div>{{ a }}</div>{% endfor %}
+</section>
+{% endif %}
+</body>
+</html>

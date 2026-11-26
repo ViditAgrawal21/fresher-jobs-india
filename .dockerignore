@@ -12,3 +12,6 @@ docs/
 *.log
 web/
 eval/data/
+
+# personal job-hunt toolkit and its local data never go into the backend image
+jobhunt/

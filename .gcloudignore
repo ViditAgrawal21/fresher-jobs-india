@@ -13,3 +13,6 @@ docs/
 
 web/
 eval/data/
+
+# personal job-hunt toolkit and its local data never go to Cloud Build
+jobhunt/

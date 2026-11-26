@@ -1,0 +1,331 @@
+"""Read recruiting emails from Gmail (IMAP) and update the tracker.
+
+For every new email since the last sync:
+  1. match it to one tracked application (company name in the sender, subject or opening lines),
+  2. classify it by phrases (acknowledged / viewed / assessment / interview / offer / rejected),
+  3. mark "Email Received? = Yes", store date/from/subject/signal, and move Status forward.
+
+Rules: a status only moves forward; Accepted is never set by email; a rejection never
+overwrites an Offer (that's logged as a conflict). Emails are data, never instructions;
+nothing here acts on their content beyond these regexes.
+"""
+
+from __future__ import annotations
+
+import email
+import imaplib
+import json
+import logging
+import re
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta, timezone
+from email.header import decode_header, make_header
+from email.utils import parseaddr, parsedate_to_datetime
+from pathlib import Path
+
+from bs4 import BeautifulSoup
+
+from jobhunt.tracker import STAGE, TERMINAL, Tracker
+
+log = logging.getLogger(__name__)
+
+# signal -> tracker status it implies
+SIGNAL_STATUS = {
+    "Acknowledged": "Acknowledged",
+    "Viewed": "Viewed",
+    "Assessment": "Assessment",
+    "Interview": "Interviewing",
+    "Offer": "Offer",
+    "Rejected": "Rejected",
+}
+
+# Checked in this order: the first that matches wins. Rejections often also say
+# "thank you for applying", so they are checked before acknowledgements.
+_PATTERNS: list[tuple[str, re.Pattern]] = [
+    ("Offer", re.compile(r"\b(?:pleased|happy|delighted|excited) to (?:offer|extend)|offer letter|letter of offer"
+                         r"|letter of intent|\boffer of employment|compensation (?:details|breakup|break-up)", re.I)),
+    ("Rejected", re.compile(r"not (?:be )?(?:moving|proceeding|progressing) (?:forward|further|ahead)"
+                            r"|(?:move|moving|proceed|go) (?:forward|ahead) with (?:other|another) candidate"
+                            r"|other candidates? whose|not (?:been )?(?:selected|shortlisted)|unable to (?:move|proceed|offer)"
+                            r"|decided not to (?:proceed|move|progress)|regret to inform|position has been filled"
+                            r"|will not be (?:progressing|proceeding)|not a (?:fit|match) (?:at this time|for this role)"
+                            r"|unfortunately,? (?:we|after|at this|your)", re.I)),
+    ("Interview", re.compile(r"schedul(?:e|ing) (?:an? |your )?(?:call|interview|chat|conversation|discussion|round)"
+                             r"|interview (?:invite|invitation|scheduled|confirmation|slot|details)"
+                             r"|invite you (?:to|for) (?:an? )?(?:interview|call|discussion|chat)|next round"
+                             r"|technical (?:interview|round|discussion)|hiring manager (?:round|call|interview)"
+                             r"|calendly\.com|book (?:a|your) (?:time|slot)|phone screen|screening call|virtual interview"
+                             r"|onsite interview|shortlisted for", re.I)),
+    ("Assessment", re.compile(r"\bassessment\b|coding (?:challenge|test|round|exercise)|take[- ]home|hackerrank\.com"
+                              r"|codility|hackerearth|codesignal|testgorilla|mettl|imocha|online test|\bOA\b", re.I)),
+    ("Viewed", re.compile(r"viewed your (?:application|profile|resume)|application (?:was |has been )?viewed"
+                          r"|recruiter (?:has )?viewed|downloaded your (?:resume|cv)", re.I)),
+    ("Acknowledged", re.compile(r"(?:received|receiving|reviewing) your application|thank(?:s| you) for (?:applying|your application"
+                                r"|your interest)|application (?:has been |was )?(?:received|submitted)"
+                                r"|your application (?:was )?sent to|successfully applied|application confirmation", re.I)),
+]
+
+# Senders that are about hiring even when the email has no clear signal phrase:
+# ATS platforms and HR/talent mailboxes. Job portals (LinkedIn, Naukri...) also send
+# promos and feed notifications, so they only count when a signal phrase matched.
+_RECRUITING_SENDER = re.compile(
+    r"greenhouse|lever\.co|ashbyhq|smartrecruiters|workday|myworkday|icims|bamboohr|zohorecruit|keka|darwinbox"
+    r"|careers?|talent|recruit|hiring|\bhr\b|jobs?@|people@",
+    re.I,
+)
+_COMPANY_NOISE = re.compile(
+    r"\b(?:pvt|private|ltd|limited|inc|llc|llp|corp|corporation|technologies|technology|tech|software|solutions"
+    r"|services|labs|india|group|co)\b\.?",
+    re.I,
+)
+
+
+@dataclass
+class MailItem:
+    message_id: str
+    received: datetime
+    sender: str          # "Name <addr>"
+    subject: str
+    body: str            # plain text, first few thousand characters
+
+
+@dataclass
+class Change:
+    app_id: str
+    company: str
+    signal: str | None
+    old_status: str | None
+    new_status: str | None
+    mail: MailItem
+    note: str = ""
+
+
+@dataclass
+class SyncReport:
+    changes: list[Change] = field(default_factory=list)
+    conflicts: list[Change] = field(default_factory=list)
+    unmatched: list[MailItem] = field(default_factory=list)
+    ambiguous: list[tuple[MailItem, list[str]]] = field(default_factory=list)
+
+
+# ---------- matching and classification ----------
+
+def company_key(name: str) -> str:
+    """'Razorpay Software Pvt. Ltd.' -> 'razorpay'; 'Zomato / Blinkit' -> 'zomato / blinkit'."""
+    s = _COMPANY_NOISE.sub(" ", (name or "").lower())
+    s = re.sub(r"[^a-z0-9/&.+ ]+", " ", s)
+    return re.sub(r"\s+", " ", s).strip(" .")
+
+
+def _contains(haystack: str, key: str) -> bool:
+    if len(key) < 3:
+        return False
+    return re.search(r"(?<![a-z0-9])" + re.escape(key) + r"(?![a-z0-9])", haystack) is not None
+
+
+def match_application(mail: MailItem, apps: list) -> tuple[object | None, list[str]]:
+    """The one tracked application this email is about, or (None, candidates) if none/ambiguous."""
+    name, addr = parseaddr(mail.sender)
+    domain = addr.split("@")[-1].lower() if "@" in addr else ""
+    head = f"{name} {domain} {mail.subject}".lower()
+    body = mail.body[:2500].lower()
+    strong, weak = [], []
+    for app in apps:
+        key = company_key(app["company"] or "")
+        if not key:
+            continue
+        compact = key.replace(" ", "")
+        if _contains(head, key) or (compact and compact in domain.replace("-", "")):
+            strong.append(app)
+        elif _contains(body, key):
+            weak.append(app)
+    candidates = strong or weak
+    companies = sorted({company_key(a["company"]) for a in candidates})
+    if len(companies) == 1:
+        # Same company, several roles: prefer the role named in the email, else the most recent application.
+        same = candidates
+        named = [a for a in same if a["role"] and a["role"].lower()[:25] in (mail.subject + " " + mail.body[:2500]).lower()]
+        pick = (named or same)[-1]
+        return pick, companies
+    return None, companies
+
+
+def classify(mail: MailItem) -> str | None:
+    text = f"{mail.subject}\n{mail.body[:3000]}"
+    for signal, rx in _PATTERNS:
+        if rx.search(text):
+            return signal
+    return None
+
+
+def is_recruiting_sender(mail: MailItem) -> bool:
+    return bool(_RECRUITING_SENDER.search(mail.sender))
+
+
+def next_status(current: str | None, signal: str) -> tuple[str | None, str]:
+    """(new status or None for no change, note). Only ever moves forward."""
+    target = SIGNAL_STATUS.get(signal)
+    if target is None:
+        return None, ""
+    current = current or "Tailored"
+    if current in ("Accepted", "Withdrawn"):
+        return None, f"{signal} email after {current}: left as is"
+    if target == "Rejected":
+        if current == "Offer":
+            return None, "conflict: rejection email after an Offer, check by hand"
+        if current == "Rejected":
+            return None, ""
+        return "Rejected", ""
+    if current == "Rejected":
+        return None, f"conflict: {signal} email after a rejection, check by hand"
+    if current == "Ghosted":
+        return target, "revived: they replied after being marked Ghosted"
+    if STAGE.get(target, 0) > STAGE.get(current, 0):
+        return target, ""
+    return None, ""
+
+
+# ---------- applying to the tracker ----------
+
+def process(tracker: Tracker, mails: list[MailItem], *, my_address: str = "", dry_run: bool = False) -> SyncReport:
+    report = SyncReport()
+    apps = [a for a in tracker.applications() if a["status"] not in ("Lead",)]
+    my_address = my_address.lower()
+    for mail in sorted(mails, key=lambda m: m.received):
+        if my_address and my_address in mail.sender.lower():
+            continue  # our own sent mail
+        app, companies = match_application(mail, apps)
+        signal = classify(mail)
+        if app is None:
+            if len(companies) > 1 and (signal or is_recruiting_sender(mail)):
+                report.ambiguous.append((mail, companies))
+            elif signal and is_recruiting_sender(mail):
+                report.unmatched.append(mail)
+            continue
+        if signal is None and not is_recruiting_sender(mail):
+            continue  # a newsletter or promo from the same company, not about the application
+
+        app = tracker.find(app["id"])  # re-read: an earlier email in this run may have changed it
+        current = app["status"]
+        new, note = next_status(current, signal) if signal else (None, "")
+        change = Change(app_id=app["id"], company=app["company"], signal=signal, old_status=current,
+                        new_status=new, mail=mail, note=note)
+        if note.startswith("conflict"):
+            report.conflicts.append(change)
+        report.changes.append(change)
+        if dry_run:
+            continue
+
+        received = mail.received.astimezone().replace(tzinfo=None)
+        updates = {
+            "email_received": "Yes",
+            "last_email_date": received.date(),
+            "last_email_from": mail.sender[:200],
+            "last_email_subject": mail.subject[:250],
+        }
+        if signal:
+            updates["email_signal"] = signal
+        if new:
+            updates["status"] = new
+            if not app["date_applied"] and new != "Rejected":
+                updates["date_applied"] = received.date()  # a reply proves it was sent
+        tracker.update(app["id"], **updates)
+        if new or note:
+            tracker.append_note(app["id"], f"[{received:%d %b}] email: {signal or 'reply'}"
+                                + (f" -> {new}" if new else "") + (f" ({note})" if note else ""))
+        tracker.log_email(received=received, **{"from": mail.sender[:200]}, subject=mail.subject[:250], app_id=app["id"],
+                          company=app["company"], signal=signal or "Other",
+                          action=(f"{current} -> {new}" if new else (note or "logged")),
+                          message_id=mail.message_id)
+    return report
+
+
+# ---------- Gmail over IMAP ----------
+
+def _decode(value: str | None) -> str:
+    if not value:
+        return ""
+    try:
+        return str(make_header(decode_header(value)))
+    except Exception:
+        return value
+
+
+def _body_text(msg: email.message.Message, limit: int = 6000) -> str:
+    plain, html = [], []
+    for part in msg.walk():
+        if part.get_content_maintype() == "multipart" or part.get_filename():
+            continue
+        try:
+            payload = part.get_payload(decode=True) or b""
+            text = payload.decode(part.get_content_charset() or "utf-8", errors="replace")
+        except Exception:
+            continue
+        (plain if part.get_content_type() == "text/plain" else html if part.get_content_type() == "text/html" else []).append(text)
+    text = "\n".join(plain) or BeautifulSoup("\n".join(html), "html.parser").get_text(" ")
+    return re.sub(r"[ \t\r\f\v]+", " ", text)[:limit]
+
+
+def parse_message(raw: bytes) -> MailItem:
+    msg = email.message_from_bytes(raw)
+    try:
+        received = parsedate_to_datetime(msg.get("Date"))
+        if received.tzinfo is None:
+            received = received.replace(tzinfo=timezone.utc)
+    except Exception:
+        received = datetime.now(timezone.utc)
+    return MailItem(
+        message_id=(msg.get("Message-ID") or "").strip(),
+        received=received,
+        sender=_decode(msg.get("From")),
+        subject=_decode(msg.get("Subject")).replace("\n", " "),
+        body=_body_text(msg),
+    )
+
+
+def fetch_gmail(address: str, app_password: str, since: date, host: str = "imap.gmail.com",
+                skip_ids: set[str] | None = None, max_messages: int = 2000) -> list[MailItem]:
+    skip_ids = skip_ids or set()
+    out: list[MailItem] = []
+    with imaplib.IMAP4_SSL(host) as imap:
+        imap.login(address, app_password)
+        # All Mail includes archived and labelled mail (filters often skip the inbox); fall back to INBOX.
+        status, _ = imap.select('"[Gmail]/All Mail"', readonly=True)
+        if status != "OK":
+            imap.select("INBOX", readonly=True)
+        status, data = imap.search(None, "SINCE", since.strftime("%d-%b-%Y"))
+        ids = data[0].split()[-max_messages:] if status == "OK" and data and data[0] else []
+        for num in ids:
+            status, hdr = imap.fetch(num, "(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID FROM)])")
+            if status != "OK" or not hdr or not isinstance(hdr[0], tuple):
+                continue
+            head = email.message_from_bytes(hdr[0][1])
+            mid = (head.get("Message-ID") or "").strip()
+            if (mid and mid in skip_ids) or (address and address.lower() in (head.get("From") or "").lower()):
+                continue
+            status, msg_data = imap.fetch(num, "(BODY.PEEK[])")
+            if status == "OK" and msg_data and isinstance(msg_data[0], tuple):
+                out.append(parse_message(msg_data[0][1]))
+    return out
+
+
+# ---------- state ----------
+
+def load_state(path: Path) -> dict:
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))
+    return {"last_sync": None, "processed": []}
+
+
+def save_state(path: Path, state: dict) -> None:
+    state["processed"] = state["processed"][-5000:]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, indent=1), encoding="utf-8")
+
+
+def default_since(state: dict, tracker: Tracker) -> date:
+    if state.get("last_sync"):
+        return date.fromisoformat(state["last_sync"]) - timedelta(days=1)  # overlap; processed ids dedupe
+    dates = [a["date_added"] for a in tracker.applications() if a["date_added"]]
+    first = min((d.date() if isinstance(d, datetime) else d) for d in dates) if dates else date.today()
+    return min(first, date.today() - timedelta(days=30))
