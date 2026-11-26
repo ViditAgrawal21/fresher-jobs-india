@@ -286,7 +286,8 @@
     const host = document.getElementById("kpis"); host.textContent = "";
     const sent = list.filter(isSent), resp = sent.filter(responded);
     const inter = list.filter(a => INTERVIEW.has(a.status)), offers = list.filter(a => ["Offer", "Accepted"].includes(a.status));
-    const matches = sent.map(a => a.match).filter(m => m !== null && m !== undefined);
+    const pool = sent.length ? sent : list;  // before anything is sent, describe what's tailored
+    const matches = pool.map(a => a.match).filter(m => m !== null && m !== undefined);
     const monday = new Date(today); monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
     const mondayIso = monday.toISOString().slice(0, 10);
     const thisWeek = sent.filter(a => a.applied && a.applied >= mondayIso).length;
@@ -296,7 +297,8 @@
       ["Responses", resp.length, `${pct(resp.length, sent.length)}% of sent`],
       ["Interview stage", inter.length, `${pct(inter.length, sent.length)}% of sent`],
       ["Offers", offers.length, offers.length ? "compare before you accept" : "target: 1 by 31 Mar"],
-      ["Avg match", matches.length ? Math.round(matches.reduce((s, m) => s + m, 0) / matches.length) + "%" : "–", "keyword match of sent jobs"],
+      ["Avg match", matches.length ? Math.round(matches.reduce((s, m) => s + m, 0) / matches.length) + "%" : "–",
+       sent.length ? "keyword match of sent jobs" : "keyword match of tailored jobs"],
       ["Follow-ups due", list.filter(followUp).length, `no reply after ${D.follow_days} days`],
       ["This week", thisWeek, week ? `target ${week.target}` : "no target set"],
     ];
