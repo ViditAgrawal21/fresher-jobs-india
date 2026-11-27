@@ -14,7 +14,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 from markupsafe import Markup
 
-from jobhunt.discover import EMPLOYEES, lead_description
+from jobhunt.discover import EMPLOYEES, lead_description, size_band
 from jobhunt.keywords import DOMAIN
 from jobhunt.profile import load_profile
 from jobhunt.settings import JobhuntSettings
@@ -84,8 +84,10 @@ def build_data(settings: JobhuntSettings, today: date | None = None) -> dict:
             "matched": matched, "missing": missing,
             "url": a["url"] or "",
             "employees": EMPLOYEES.get(a["company"]),
-            # Ordering hint for the board: 2 = advised against, 1 = under 500 employees, 0 = go.
-            "flag": 2 if "Not recommended" in str(a["notes"] or "") else 1 if "Under 500 employees" in str(a["notes"] or "") else 0,
+            "size": size_band(EMPLOYEES.get(a["company"]))[1],
+            # Ordering hint for the board: 500-1,000 employees first, then other mid-size, large, small;
+            # jobs advised against go last.
+            "flag": 9 if "Not recommended" in str(a["notes"] or "") else size_band(EMPLOYEES.get(a["company"]))[0],
             "resume": str(a["resume"]).replace("\\", "/") if a["resume"] and (data_dir / str(a["resume"])).exists() else None,
             "report": rel("report.md"), "jd": rel("job_description.txt"),
         })
@@ -102,6 +104,7 @@ def build_data(settings: JobhuntSettings, today: date | None = None) -> dict:
         leads.append({
             "row": r, "company": lead["company"], "title": lead["title"] or "", "location": lead["location"] or "",
             "exp": lead["exp"] or "", "score": lead["score"] or 0, "track": lead["track"] or "Other",
+            "size": size_band(EMPLOYEES.get(lead["company"]))[1],
             "matched": _split(lead["matched"]), "missing": _split(lead["missing"]), "url": lead["url"] or "",
             "posted": _iso(lead["posted"]), "found": _iso(lead["found"]), "decision": lead["decision"] or "New",
             "has_jd": bool(lead_description(data_dir / "leads", str(lead["key"]))),

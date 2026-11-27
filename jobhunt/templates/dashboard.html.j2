@@ -137,6 +137,10 @@
       <option>Backend</option><option>Full Stack</option><option>AI Engineer</option><option>Mobile</option>
       <option>Founding</option><option>Other</option>
     </select>
+    <select id="f-size" aria-label="Company size">
+      <option value="all">All company sizes</option><option value="500-1,000">500–1,000 employees</option>
+      <option value="mid">Mid-size (300–2,000)</option><option value="large">Large (2,000+)</option>
+    </select>
     <select id="f-period" aria-label="Period">
       <option value="all">All time</option><option value="30">Last 30 days</option><option value="7">Last 7 days</option>
     </select>
@@ -147,7 +151,7 @@
 
   <section class="card" style="margin-bottom:16px" aria-labelledby="pipe-h">
     <div class="card-head">
-      <div><h2 id="pipe-h">Pipeline</h2><div class="sub">Every application by stage. Ready to apply puts your shortlist first (best fit at 500+ employee companies); other columns show the latest change first.</div></div>
+      <div><h2 id="pipe-h">Pipeline</h2><div class="sub">Every application by stage. Ready to apply puts 500–1,000 employee companies first, then other mid-size firms, each by fit; other columns show the latest change first.</div></div>
       <div class="board-note" id="board-note" role="status"></div>
     </div>
     <div class="board-wrap"><div class="board" id="board"></div></div>
@@ -238,7 +242,9 @@
     if (!o || !(o.updated_ms > D.built_ms)) return a;
     return { ...a, status: o.status, changed: o.date, applied: a.applied || (NOT_SENT.has(o.status) ? null : o.date) };
   }
-  const state = { track: "All", period: "all", q: "", scope: "apps", sort: { key: "added", dir: -1 } };
+  const state = { track: "All", size: "all", period: "all", q: "", scope: "apps", sort: { key: "added", dir: -1 } };
+  const sizeOk = x => state.size === "all" || x.size === state.size
+    || (state.size === "mid" && (x.size === "500-1,000" || x.size === "mid-size"));
 
   // ---------- theme (per-viewer preference; storage may be unavailable) ----------
   const root = document.documentElement;
@@ -260,11 +266,11 @@
   const hay = parts => parts.join(" ").toLowerCase().includes(state.q);
 
   function apps() {
-    return D.apps.map(effective).filter(a => (state.track === "All" || a.track === state.track) && inPeriod(a.applied || a.added)
+    return D.apps.map(effective).filter(a => (state.track === "All" || a.track === state.track) && sizeOk(a) && inPeriod(a.applied || a.added)
       && (!state.q || hay([a.company, a.role, a.status, a.source, ...a.matched, ...a.missing])));
   }
   function leads() {
-    return D.leads.filter(l => (state.track === "All" || l.track === state.track) && inPeriod(l.found)
+    return D.leads.filter(l => (state.track === "All" || l.track === state.track) && sizeOk(l) && inPeriod(l.found)
       && (!state.q || hay([l.company, l.title, l.location, ...l.matched, ...l.missing])));
   }
   function node(tag, attrs = {}, parent, txt) {
@@ -555,8 +561,10 @@
     const when = a.changed || a.applied;
     if (when) node("span", {}, m, fmtDate(when));
     if (followUp(a)) node("span", { class: "pill warn" }, m, "Follow up");
-    if (a.flag === 2) node("span", { class: "pill crit", title: "Weak match on the job's must-haves" }, m, "Not recommended");
-    else if (a.flag === 1) node("span", { class: "pill", title: "Under 500 employees" }, m, "Small company");
+    if (a.flag === 9) node("span", { class: "pill crit", title: "Weak match on the job's must-haves" }, m, "Not recommended");
+    if (a.size && a.size !== "size unknown") node("span", { class: a.size === "500-1,000" ? "pill active" : "pill",
+      title: a.employees ? `About ${a.employees.toLocaleString("en-IN")} employees (rough public estimate)` : "" },
+      m, a.size === "500-1,000" ? "500–1,000 staff" : a.size);
     const acts = node("div", { class: "acts" }, c);
     if (a.url && /^https?:\/\//.test(a.url)) node("a", { href: a.url, target: "_blank", rel: "noopener" }, acts, label === "Ready to apply" ? "Apply" : "Posting");
     if (a.resume) node("a", { href: a.resume, target: "_blank", rel: "noopener" }, acts, "Resume");
@@ -620,6 +628,7 @@
   document.getElementById("generated").textContent = `Built ${D.generated} from tracker.xlsx`;
   document.getElementById("f-track").addEventListener("change", e => { state.track = e.target.value; render(); });
   document.getElementById("f-period").addEventListener("change", e => { state.period = e.target.value; render(); });
+  document.getElementById("f-size").addEventListener("change", e => { state.size = e.target.value; render(); });
   document.getElementById("f-q").addEventListener("input", e => { state.q = e.target.value.trim().toLowerCase(); render(); });
   document.querySelectorAll("[data-scope]").forEach(b => b.addEventListener("click", () => {
     state.scope = b.dataset.scope;

@@ -255,7 +255,7 @@ def cmd_discover(args, s) -> None:
             print(f"  warning: {e}")
         save_cache(posts, cache)
     rows = discover(profile, posts, s.data_dir / "leads", max_years=args.max_years, min_score=args.min_score,
-                    title_filter=args.title, min_employees=args.min_employees)
+                    title_filter=args.title, min_employees=args.min_employees, max_employees=args.max_employees)
     t = Tracker(s.tracker_path)
     added = t.add_leads(rows[: args.limit])
     t.save()
@@ -361,6 +361,7 @@ def main(argv: list[str] | None = None) -> None:
     a.add_argument("--limit", type=int, default=150)
     a.add_argument("--title", help="regex the job title must match, e.g. 'software engineer|backend|ai engineer'")
     a.add_argument("--min-employees", type=int, default=0, help="keep companies with at least this many employees (approx)")
+    a.add_argument("--max-employees", type=int, default=0, help="keep companies with at most this many employees (approx)")
     a.add_argument("--cached", action="store_true", help="re-score the last fetch (under 12 hours old) instead of refetching")
 
     a = sub.add_parser("import-status", help="apply status changes saved on the hosted dashboard (JSON file)")

@@ -33,10 +33,11 @@ TRACK_LABELS = {"backend": "Backend", "fullstack": "Full Stack", "ai": "AI Engin
 EXTRA_GREENHOUSE = {"mongodb": "MongoDB", "databricks": "Databricks", "inmobi": "InMobi", "twilio": "Twilio",
                     "truecaller": "Truecaller", "airbnb": "Airbnb", "purestorage": "Pure Storage", "fivetran": "Fivetran",
                     "toast": "Toast", "netskope": "Netskope", "agoda": "Agoda", "appian": "Appian", "zoominfo": "ZoomInfo",
-                    "coinbase": "Coinbase", "sumologic": "Sumo Logic", "samsara": "Samsara", "newrelic": "New Relic"}
+                    "coinbase": "Coinbase", "sumologic": "Sumo Logic", "samsara": "Samsara", "newrelic": "New Relic",
+                    "zenoti": "Zenoti", "cloudsek": "CloudSEK", "harnessinc": "Harness", "contentstack": "Contentstack"}
 EXTRA_LEVER = {"paytm": "Paytm", "hevodata": "Hevo Data", "mindtickle": "Mindtickle", "fampay": "FamPay",
-               "pocketfm": "Pocket FM"}
-EXTRA_ASHBY: dict[str, str] = {"notion": "Notion"}
+               "pocketfm": "Pocket FM", "acceldata": "Acceldata"}
+EXTRA_ASHBY: dict[str, str] = {"notion": "Notion", "spotdraft": "SpotDraft"}
 EXTRA_SMARTRECRUITERS = {"Freshworks": "Freshworks"}
 
 # Approximate total headcount (public estimates, 2025-26) so `discover --min-employees` can keep
@@ -50,8 +51,22 @@ EMPLOYEES = {
     "Airbnb": 7000, "Paytm": 10000, "Hevo Data": 250, "Mindtickle": 600, "FamPay": 150, "Pure Storage": 6000,
     "Fivetran": 1300, "Toast": 5500, "Netskope": 3000, "Agoda": 7000, "Appian": 2000, "ZoomInfo": 3500,
     "Coinbase": 3500, "Sumo Logic": 900, "Samsara": 3000, "New Relic": 2500, "Freshworks": 4500, "Pocket FM": 1000,
-    "Notion": 1000,
+    "Notion": 1000, "Zenoti": 1200, "CloudSEK": 300, "Harness": 1200, "Contentstack": 500, "Acceldata": 300,
+    "SpotDraft": 200,
 }
+
+
+def size_band(employees: int | None) -> tuple[int, str]:
+    """(priority, label): 500-1,000 employees is the main target, then other mid-size firms."""
+    if employees is None:
+        return 3, "size unknown"
+    if 500 <= employees <= 1000:
+        return 0, "500-1,000"
+    if 300 <= employees <= 2000:
+        return 1, "mid-size"
+    if employees > 2000:
+        return 2, "large"
+    return 3, "small"
 
 _SOFTWARE_TITLE = re.compile(
     r"engineer|developer|\bsde\b|programmer|full[ -]?stack|back[ -]?end|front[ -]?end|mobile|software|\bai\b|\bllm\b|genai",
@@ -70,7 +85,7 @@ _SKIP_TITLE = re.compile(
 
 
 def score_post(profile: Profile, post, *, max_years: int = 4, title_filter: str | None = None,
-               min_employees: int = 0) -> dict | None:
+               min_employees: int = 0, max_employees: int = 0) -> dict | None:
     """A Leads-sheet row for a post worth looking at, or None."""
     from pipeline.filters import looks_senior
     from pipeline.normalize import clean_title, html_to_text
@@ -82,6 +97,8 @@ def score_post(profile: Profile, post, *, max_years: int = 4, title_filter: str 
     if title_filter and not re.search(title_filter, title, re.I):
         return None
     if min_employees and EMPLOYEES.get(post.company, 0) < min_employees:
+        return None
+    if max_employees and EMPLOYEES.get(post.company, 10**9) > max_employees:
         return None
     desc = html_to_text(post.description or "")
     years = years_required(desc)
@@ -182,11 +199,12 @@ def load_cache(path: Path, max_age_hours: float = 12) -> list | None:
 
 
 def discover(profile: Profile, posts: list, leads_dir: Path, *, max_years: int = 4, min_score: int = 35,
-             title_filter: str | None = None, min_employees: int = 0) -> list[dict]:
+             title_filter: str | None = None, min_employees: int = 0, max_employees: int = 0) -> list[dict]:
     """Score posts, keep the good ones (best first) and save their descriptions for `apply --lead`."""
     rows, seen = [], set()
     for post in posts:
-        row = score_post(profile, post, max_years=max_years, title_filter=title_filter, min_employees=min_employees)
+        row = score_post(profile, post, max_years=max_years, title_filter=title_filter, min_employees=min_employees,
+                         max_employees=max_employees)
         if row is None or row["score"] < min_score or row["url"] in seen:
             continue
         seen.add(row["url"])
