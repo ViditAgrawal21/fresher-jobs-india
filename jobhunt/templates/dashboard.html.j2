@@ -110,6 +110,13 @@
   .board-note { font-size: 12.5px; color: var(--ink-2); }
   .board-note.err { color: var(--crit); }
   .empty-col { font-size: 12px; color: var(--ink-2); padding: 4px; }
+  .pipe-tools { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+  .af-bar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12.5px; }
+  .af-bar button.go { background: var(--have); color: #ffffff; border-color: var(--have); }
+  .af-bar button:disabled, .card-app button:disabled { opacity: 0.5; cursor: default; }
+  .af-status { font-size: 12.5px; border: 1px solid var(--ring); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
+  .af-status.err { border-color: var(--crit); color: var(--crit); }
+  .af-status ul { margin: 6px 0 0; padding-left: 18px; }
   .files a:hover { text-decoration: underline; }
   code { font-size: 12px; background: var(--page); padding: 1px 5px; border-radius: 4px; border: 1px solid var(--ring); white-space: nowrap; }
   .tip { position: fixed; pointer-events: none; background: var(--surface); color: var(--ink); border: 1px solid var(--ring);
@@ -152,8 +159,17 @@
   <section class="card" style="margin-bottom:16px" aria-labelledby="pipe-h">
     <div class="card-head">
       <div><h2 id="pipe-h">Pipeline</h2><div class="sub">Every application by stage. Ready to apply puts 500–1,000 employee companies first, then other mid-size firms, each by fit; other columns show the latest change first.</div></div>
-      <div class="board-note" id="board-note" role="status"></div>
+      <div class="pipe-tools">
+        <div class="af-bar" id="af-bar" hidden>
+          <label for="af-n">Autofill the top</label>
+          <select id="af-n"><option>3</option><option selected>5</option><option>10</option></select>
+          <span>ready jobs</span>
+          <button type="button" id="af-all" class="go">Start autofill</button>
+        </div>
+        <div class="board-note" id="board-note" role="status"></div>
+      </div>
     </div>
+    <div class="af-status" id="af-status" role="status" aria-live="polite" hidden></div>
     <div class="board-wrap"><div class="board" id="board"></div></div>
   </section>
 
@@ -203,7 +219,7 @@
     <div class="table-wrap"><table id="leads"></table></div>
   </section>
 
-  <footer>Rebuild with <code>python -m jobhunt dashboard</code> after <code>apply</code>, <code>sync-mail</code> or <code>discover</code>. The data lives in tracker.xlsx; this page only reads it.</footer>
+  <footer id="foot">Rebuild with <code>python -m jobhunt dashboard</code> after <code>apply</code>, <code>sync-mail</code> or <code>discover</code>. The data lives in tracker.xlsx; this page only reads it.</footer>
 </main>
 <div class="tip" id="tip" role="status" aria-live="polite" hidden></div>
 
@@ -211,7 +227,12 @@
 <script>
 (() => {
   "use strict";
-  const D = JSON.parse(document.getElementById("jh-data").textContent);
+  let D = JSON.parse(document.getElementById("jh-data").textContent);
+  // "server": served by `python -m jobhunt serve`, which saves moves to tracker.xlsx and runs autofill.
+  const SERVER = D.mode === "server";
+  // LinkedIn and Naukri forbid automated applications, so their jobs keep a plain Apply link.
+  const AUTO_OK = url => /^https:\/\//.test(url || "") && !/linkedin\.com|naukri\.com/i.test(url);
+  let afBusy = false, afWatching = false, afSeen = 0, afTimer = null;
   const NS = "http://www.w3.org/2000/svg";
   const RESPONDED = new Set(["Viewed", "Replied", "Assessment", "Interviewing", "Offer", "Accepted", "Rejected"]);
   const SIGNAL_RESP = new Set(["Viewed", "Assessment", "Interview", "Offer", "Rejected"]);
@@ -566,12 +587,18 @@
       title: a.employees ? `About ${a.employees.toLocaleString("en-IN")} employees (rough public estimate)` : "" },
       m, a.size === "500-1,000" ? "500–1,000 staff" : a.size);
     const acts = node("div", { class: "acts" }, c);
-    if (a.url && /^https?:\/\//.test(a.url)) node("a", { href: a.url, target: "_blank", rel: "noopener" }, acts, label === "Ready to apply" ? "Apply" : "Posting");
+    const ready = label === "Ready to apply", auto = SERVER && ready && AUTO_OK(a.url);
+    if (a.url && /^https?:\/\//.test(a.url)) node("a", { href: a.url, target: "_blank", rel: "noopener" }, acts, ready && !auto ? "Apply" : "Posting");
     if (a.resume) node("a", { href: a.resume, target: "_blank", rel: "noopener" }, acts, "Resume");
+    if (auto) {
+      const b = node("button", { type: "button", class: "go", title: "Open the form in a browser window and fill it in. You check it and click Submit." }, acts, "Autofill");
+      b.disabled = afBusy;
+      b.addEventListener("click", () => startAutofill({ ids: [a.id] }));
+    }
     if (!canWrite) return;
     const nx = NEXT[a.status];
     if (nx) {
-      const b = node("button", { type: "button", class: "go" }, acts, nx[1]);
+      const b = node("button", { type: "button", class: auto ? "" : "go" }, acts, nx[1]);
       b.addEventListener("click", () => move(a, nx[0]));
     }
     const sel = node("select", { id: `mv-${a.id}`, "aria-label": `Move ${a.company}, ${a.role} to` }, acts);
@@ -579,7 +606,77 @@
     for (const [v, l] of MOVES) if (v !== a.status) node("option", { value: v }, sel, l);
     sel.addEventListener("change", () => { if (sel.value) move(a, sel.value); });
   }
+  async function reload() {
+    try {
+      const r = await fetch("/api/data", { cache: "no-store" });
+      if (r.ok) { D = await r.json(); render(); }
+    } catch (e) { boardNote("The dashboard server stopped. Start it again with python -m jobhunt serve.", true); }
+  }
+  async function post(path, body) {
+    const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    let j = {}; try { j = await r.json(); } catch (e) {}
+    if (!r.ok) throw new Error(typeof j.detail === "string" ? j.detail : `error ${r.status}`);
+    return j;
+  }
+  async function moveServer(a, status) {
+    boardNote(`Saving ${a.company}…`);
+    try {
+      await post("/api/status", { id: a.id, status });
+      await reload();
+      boardNote(`${a.company}: saved as ${moveLabel(status)} in tracker.xlsx.`);
+    } catch (e) {
+      boardNote(String(e.message || "").startsWith("Failed to fetch") ? "The dashboard server isn't running. Start it with python -m jobhunt serve." : `Not saved: ${e.message}`, true);
+      render();
+    }
+  }
+
+  // ---------- autofill (server mode) ----------
+  async function startAutofill(body) {
+    afStatus({ state: "starting", message: "Opening the browser…", ids: body.ids || [] });
+    try {
+      const j = await post("/api/autofill", body);
+      afWatching = true; afSeen = 0; afStatus(j); pollAutofill();
+    } catch (e) { afStatus({ state: "error", message: e.message }); }
+  }
+  async function pollAutofill() {
+    clearTimeout(afTimer);
+    let j;
+    try { j = await (await fetch("/api/autofill", { cache: "no-store" })).json(); } catch (e) { return; }
+    afStatus(j);
+    const sent = (j.submitted || []).length;
+    if (sent > afSeen) { afSeen = sent; reload(); }
+    if (j.state === "starting" || j.state === "running") afTimer = setTimeout(pollAutofill, 3000);
+    else if (afWatching) { afWatching = false; reload(); }
+  }
+  function afStatus(j) {
+    const n = document.getElementById("af-status");
+    const busy = j.state === "starting" || j.state === "running";
+    if (busy !== afBusy) { afBusy = busy; board(apps()); }
+    document.getElementById("af-all").disabled = busy;
+    if (!j || j.state === "idle") { n.hidden = true; return; }
+    n.hidden = false; n.textContent = ""; n.className = "af-status" + (j.state === "error" ? " err" : "");
+    node("b", {}, n, { starting: "Autofill starting.", running: "Autofill running.", done: "Autofill finished.", error: "Autofill stopped." }[j.state] || "");
+    node("span", {}, n, " " + (j.message || ""));
+    if (!(j.ids || []).length) return;
+    const ul = node("ul", {}, n);
+    for (const id of j.ids) {
+      const a = D.apps.find(x => x.id === id), got = (j.filled || {})[id] || 0;
+      const where = (j.submitted || []).includes(id) ? "submitted, marked in the tracker" : got ? `${got} field${got === 1 ? "" : "s"} filled, waiting for you` : "opening";
+      node("li", {}, ul, `${id} ${a ? `${a.company}, ${a.role}` : ""}: ${where}`);
+    }
+  }
+  document.getElementById("af-all").addEventListener("click", () => {
+    const n = +document.getElementById("af-n").value;
+    const top = apps().filter(a => ["Lead", "Tailored"].includes(a.status) && a.flag !== 9 && AUTO_OK(a.url))
+      .sort((x, y) => ((x.flag || 0) - (y.flag || 0)) || (y.fit ?? 0) - (x.fit ?? 0)).slice(0, n);
+    if (!top.length) { afStatus({ state: "error", message: "No ready jobs with a company apply link. LinkedIn and Naukri jobs are applied to by hand." }); return; }
+    const names = top.map(a => `${a.id} ${a.company}`).join("\n");
+    if (confirm(`Open these ${top.length} applications and fill them in?\n\n${names}\n\nYou check every form and click Submit yourself.`))
+      startAutofill({ ids: top.map(a => a.id) });
+  });
+
   async function move(a, status) {
+    if (SERVER) return moveServer(a, status);
     const prev = overrides.get(a.id);
     const body = { status, date: TODAY, updated_ms: Date.now(), company: String(a.company).slice(0, 80), role: String(a.role).slice(0, 120) };
     overrides = new Map(overrides); overrides.set(a.id, body); render();
@@ -595,8 +692,17 @@
     }
   }
   async function connect() {
+    if (SERVER) {
+      canWrite = true;
+      document.getElementById("af-bar").hidden = false;
+      document.getElementById("foot").textContent = "Live from tracker.xlsx: moves save there straight away. Autofill fills forms in a browser window; you check each one and click Submit. Stop the server with Ctrl+C in its terminal.";
+      boardNote("Moves save to tracker.xlsx.");
+      render();
+      pollAutofill();
+      return;
+    }
     if (typeof window.claude?.use !== "function") {
-      boardNote("Buttons appear on the hosted dashboard. Here, use python -m jobhunt applied / status.");
+      boardNote("For buttons that save and autofill, run: python -m jobhunt serve");
       return;
     }
     const [db, user] = await Promise.all([window.claude.use("db"), window.claude.use("user")]);
@@ -625,7 +731,7 @@
     const list = apps();
     kpis(list); board(list); funnel(list); weekly(list); market(list); byMatch(list); bySource(list); appsTable(list); leadsTable(leads());
   }
-  document.getElementById("generated").textContent = `Built ${D.generated} from tracker.xlsx`;
+  document.getElementById("generated").textContent = SERVER ? `Live from tracker.xlsx (opened ${D.generated})` : `Built ${D.generated} from tracker.xlsx`;
   document.getElementById("f-track").addEventListener("change", e => { state.track = e.target.value; render(); });
   document.getElementById("f-period").addEventListener("change", e => { state.period = e.target.value; render(); });
   document.getElementById("f-size").addEventListener("change", e => { state.size = e.target.value; render(); });

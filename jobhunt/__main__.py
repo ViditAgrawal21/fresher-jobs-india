@@ -10,6 +10,8 @@
   sync-mail    read Gmail and update replies / statuses
   discover     find matching openings on company job boards (and Adzuna)
   dashboard    build the HTML dashboard: funnel, weekly targets, skills in demand, every resume
+  serve        the dashboard on http://127.0.0.1:8765: board moves save to the tracker, autofill buttons
+  autofill     fill application forms in a browser window for you to check and submit
 """
 
 from __future__ import annotations
@@ -202,19 +204,20 @@ def cmd_followups(args, s) -> None:
 def cmd_sync_mail(args, s) -> None:
     from jobhunt import mailsync
 
-    if not (s.gmail_address and s.gmail_app_password):
-        _fail("set GMAIL_ADDRESS and GMAIL_APP_PASSWORD in .env (an App Password, not your Google password)")
+    address, password = s.gmail_login
+    if not (address and password):
+        _fail("set GMAIL_APP_PASSWORD (and GMAIL_ADDRESS or CANDIDATE_EMAIL) in .env: an App Password, not your Google password")
     t = Tracker(s.tracker_path)
     state_path = s.data_dir / "mail_state.json"
     state = mailsync.load_state(state_path)
     since = _date(args.since) or mailsync.default_since(state, t)
-    print(f"Reading {s.gmail_address} since {since:%d %b %Y}...")
+    print(f"Reading {address} since {since:%d %b %Y}...")
     try:
-        mails = mailsync.fetch_gmail(s.gmail_address, s.gmail_app_password, since, s.imap_host,
+        mails = mailsync.fetch_gmail(address, password, since, s.imap_host,
                                      skip_ids=set(state["processed"]))
     except Exception as exc:
         _fail(f"IMAP failed: {exc}. Check the App Password and that IMAP is enabled in Gmail settings.")
-    report = mailsync.process(t, mails, my_address=s.gmail_address, dry_run=args.dry_run, auto_add=not args.no_add)
+    report = mailsync.process(t, mails, my_address=address, dry_run=args.dry_run, auto_add=not args.no_add)
     for mail, new in report.added:
         print(f"  + new application from email: {new['company']} / {new['role']} ({new['source']})")
     for c in report.changes:
@@ -271,23 +274,15 @@ def cmd_import_status(args, s) -> None:
     t = Tracker(s.tracker_path)
     changes = json.loads(Path(args.file).read_text(encoding="utf-8"))
     for c in changes:
-        status = next((x for x in STATUSES if x.lower() == str(c.get("status", "")).lower()), None)
         app = t.find(str(c.get("id", "")))
-        if status is None or app is None:
+        before = app["status"] if app else None
+        try:
+            changed = t.move(str(c.get("id", "")), str(c.get("status", "")), _date(c.get("date")), c.get("note") or "")
+        except KeyError:
             print(f"  skipped {c.get('id')}: unknown status or ID")
             continue
-        day = _date(c.get("date")) or date.today()
-        values = {"status": status}
-        if status not in ("Lead", "Tailored", "Withdrawn") and not app["date_applied"]:
-            values["date_applied"] = day
-        if status in ("Replied", "Assessment", "Interviewing", "Offer", "Rejected"):
-            values["email_received"] = "Yes"
-        if app["status"] == status and all(app[k] == v for k, v in values.items() if k != "status"):
-            continue
-        t.update(app["id"], **values)
-        t.append_note(app["id"], f"[{day:%d %b}] dashboard: {app['status']} -> {status}"
-                      + (f" ({c['note']})" if c.get("note") else ""))
-        print(f"  {app['id']} {app['company']}: {app['status']} -> {status}")
+        if changed:
+            print(f"  {app['id']} {app['company']}: {before} -> {t.find(app['id'])['status']}")
     t.save()
 
 
@@ -300,6 +295,31 @@ def cmd_dashboard(args, s) -> None:
         import webbrowser
 
         webbrowser.open(out.resolve().as_uri())
+
+
+def cmd_serve(args, s) -> None:
+    from jobhunt.server import serve
+
+    serve(s, port=args.port, open_browser=not args.no_open)
+
+
+def cmd_autofill(args, s) -> None:
+    from jobhunt import autofill
+
+    autofill.load_answers(s)  # creates jobhunt/data/answers.yaml on first use
+    ids = autofill.ready_ids(s, args.limit) if args.all_ready else [i.upper() for i in args.ids]
+    if not ids:
+        _fail("give application IDs (e.g. A010 A031) or --all-ready")
+    jobs = autofill.plan(s, ids)
+    if not jobs:
+        _fail("none of those have a company apply link (LinkedIn and Naukri jobs are applied to by hand)")
+    skipped = sorted(set(ids) - {j["id"] for j in jobs})
+    print("Opening: " + ", ".join(f"{j['id']} {j['company']}" for j in jobs)
+          + (f"\nSkipped (no company apply link, or LinkedIn/Naukri): {', '.join(skipped)}" if skipped else ""))
+    print("Check every field, fill the orange ones, then click Submit yourself. Close the window when done.")
+    session = autofill.run(s, [j["id"] for j in jobs], headless=args.headless, minutes=args.minutes,
+                           on_submitted=lambda app_id: autofill.mark_submitted(s, app_id))
+    print(session.message)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -370,11 +390,23 @@ def main(argv: list[str] | None = None) -> None:
     a = sub.add_parser("dashboard", help="build the HTML dashboard (jobhunt/data/dashboard.html)")
     a.add_argument("--open", action="store_true", help="open it in your browser")
 
+    a = sub.add_parser("serve", help="run the dashboard on localhost, with saving and autofill")
+    a.add_argument("--port", type=int, default=8765)
+    a.add_argument("--no-open", action="store_true", help="don't open the browser")
+
+    a = sub.add_parser("autofill", help="fill application forms for you to check and submit")
+    a.add_argument("ids", nargs="*", help="application IDs, e.g. A010 A031")
+    a.add_argument("--all-ready", action="store_true", help="the best ready-to-apply jobs (see --limit)")
+    a.add_argument("--limit", type=int, default=5)
+    a.add_argument("--minutes", type=int, default=45, help="close the browser after this long")
+    a.add_argument("--headless", action="store_true", help=argparse.SUPPRESS)
+
     args = p.parse_args(argv)
     s = get_settings()
     {"init": cmd_init, "resume": cmd_resume, "apply": cmd_apply, "applied": cmd_applied, "status": cmd_status,
      "list": cmd_list, "followups": cmd_followups, "sync-mail": cmd_sync_mail, "discover": cmd_discover,
-     "dashboard": cmd_dashboard, "import-status": cmd_import_status}[args.cmd](args, s)
+     "dashboard": cmd_dashboard, "import-status": cmd_import_status, "serve": cmd_serve,
+     "autofill": cmd_autofill}[args.cmd](args, s)
 
 
 if __name__ == "__main__":

@@ -35,6 +35,11 @@ class JobhuntSettings(BaseSettings):
     followup_after_days: int = 7
 
     @property
+    def gmail_login(self) -> tuple[str, str]:
+        """(address, app password): the address defaults to CANDIDATE_EMAIL; spaces in the password are ignored."""
+        return (self.gmail_address or self.candidate_email), self.gmail_app_password.replace(" ", "")
+
+    @property
     def data_dir(self) -> Path:
         return Path(self.jobhunt_data_dir) if self.jobhunt_data_dir else PACKAGE_DIR / "data"
 

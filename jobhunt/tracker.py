@@ -552,6 +552,26 @@ class Tracker:
             self._set(app.row, key, v)
         return self.find(app_id)
 
+    def move(self, app_id: str, status: str, day: date | None = None, note: str = "", via: str = "dashboard") -> bool:
+        """Change an application's stage the way the dashboard does: sets the applied date when it
+        leaves Ready, records a reply for later stages, and logs the change in Notes.
+        Returns False when nothing changed. Raises KeyError for an unknown ID or status."""
+        status = next((x for x in STATUSES if x.lower() == str(status).lower()), None)
+        app = self.find(app_id)
+        if status is None or app is None:
+            raise KeyError(f"unknown status or ID: {app_id} -> {status}")
+        day = day or date.today()
+        values: dict = {"status": status}
+        if status not in ("Lead", "Tailored", "Withdrawn") and not app["date_applied"]:
+            values["date_applied"] = day
+        if status in ("Replied", "Assessment", "Interviewing", "Offer", "Accepted", "Rejected"):
+            values["email_received"] = "Yes"
+        if app["status"] == status and all(app[k] == v for k, v in values.items() if k != "status"):
+            return False
+        self.update(app["id"], **values)
+        self.append_note(app["id"], f"[{day:%d %b}] {via}: {app['status']} -> {status}" + (f" ({note})" if note else ""))
+        return True
+
     def append_note(self, app_id: str, note: str) -> None:
         app = self.find(app_id)
         old = app["notes"] or ""

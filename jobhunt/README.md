@@ -6,9 +6,10 @@ A personal job-search toolkit that lives next to the Fresher Jobs India pipeline
 2. **Apply**: tailor a one-page resume to each posting with Claude, under a guard that blocks invented facts, render it to PDF, check the ATS text layer, and add a tracker row.
 3. **Track** everything in one Excel workbook: status, the email you applied with, replies, follow-ups, and weekly targets against actual.
 4. **Sync Gmail** to mark which companies replied and move statuses forward (acknowledged, assessment, interview, offer, rejected). Confirmation emails for jobs you applied to elsewhere ("your application was sent to X" from LinkedIn, Naukri, Aperture or an ATS) add a tracker row automatically, so every application is counted.
-5. **Dashboard** (`python -m jobhunt dashboard --open`): one offline HTML page with the funnel, applications per week against your targets, the skills postings ask for (which you have, which are gaps), response rate by match % and by source, and every application with its keyword match and links to its tailored resume, report and job description.
+5. **Dashboard** (`python -m jobhunt serve`): a local web page with the funnel, applications per week against your targets, the skills postings ask for (which you have, which are gaps), response rate by match % and by source, and every application with its keyword match and links to its tailored resume, report and job description. Moving a card on the pipeline board saves to `tracker.xlsx`.
+6. **Autofill**: the Autofill button on a Ready card (or "Autofill the top N ready jobs") opens a Chrome window with one tab per application. Each form gets your details from `jobhunt/data/answers.yaml` and that job's tailored resume. Filled fields are outlined green; anything it couldn't answer is outlined orange for you.
 
-You still click Submit yourself. Portals such as LinkedIn and Naukri forbid bots, and a person reading each posting for 30 seconds catches what no script does.
+You still click Submit yourself, after reading every field. When a "thank you for applying" page appears, the application moves to Submitted in the tracker. LinkedIn and Naukri jobs keep a plain Apply link, because both sites forbid automated applications. A person reading each posting for 30 seconds also catches what no script does.
 
 ## One-time setup (Windows, PowerShell)
 
@@ -22,6 +23,16 @@ python -m jobhunt init      # creates jobhunt\data\tracker.xlsx
 python -m jobhunt resume    # base resume per track -> jobhunt\data\base\
 ```
 
+Then, every day, one command:
+
+```powershell
+python -m jobhunt serve     # http://127.0.0.1:8765 opens in your browser; Ctrl+C stops it
+```
+
+Or double-click `start-jobhunt.bat` in the repo folder. The first time, it creates `.venv` and installs the packages and Chromium; after that it just starts the dashboard.
+
+The first time you autofill, check `jobhunt\data\answers.yaml`, which is created then. It holds your notice period, CTC, expected CTC, education dates and similar answers. Blank answers are left for you in each form. The autofill browser keeps its own profile in `jobhunt\data\browser-profile`. Sign in to an ATS there once and it stays signed in.
+
 `jobhunt/data/` is git-ignored because this repo is public. Back it up to Google Drive or OneDrive, for example by setting `JOBHUNT_DATA_DIR` to a synced folder.
 
 **Gmail App Password:** turn on 2-Step Verification, then go to Google Account → Security → App passwords and create one named "jobhunt". Put it in `GMAIL_APP_PASSWORD`. Also make sure IMAP is enabled in Gmail settings (Forwarding and POP/IMAP). The toolkit only reads mail, and only on your machine.
@@ -32,7 +43,7 @@ python -m jobhunt resume    # base resume per track -> jobhunt\data\base\
 python -m jobhunt sync-mail                 # replies since yesterday -> tracker (+ rows for untracked applications)
 python -m jobhunt followups                 # who to nudge today
 python -m jobhunt discover                  # new matching jobs -> Leads sheet (2-3x a week is enough)
-python -m jobhunt dashboard --open          # the visual overview
+python -m jobhunt serve                     # dashboard: board, autofill, resumes
 ```
 
 For each job you want (from Leads, LinkedIn, Naukri or a referral):
@@ -83,6 +94,8 @@ Without an API key, or with `--offline`, tailoring is keyword-based and free. It
 | `followups` | Applied 7+ days ago with no reply, plus a draft message |
 | `sync-mail [--since DATE] [--dry-run]` | Read Gmail, update replies and statuses, log every match |
 | `discover [--max-years 4] [--min-score 35]` | Fetch and score openings into the Leads sheet |
-| `dashboard [--open]` | Build `jobhunt/data/dashboard.html` from the tracker and application folders |
+| `serve [--port 8765]` | The dashboard on localhost. Moves save to the tracker, links open each resume and report, and Autofill buttons work |
+| `autofill IDS \| --all-ready [--limit 5]` | Autofill from the terminal: open and fill those forms, then you check and submit each one |
+| `dashboard [--open]` | Build a static `jobhunt/data/dashboard.html` (read-only) from the tracker and application folders |
 
 `discover` checks the boards in `pipeline/sources/boards.py` plus the extra experienced-hire boards in `jobhunt/discover.py` (Paytm, MongoDB, Databricks, Hevo Data, InMobi, Mindtickle, Twilio, FamPay, Truecaller, Airbnb). To add a company, put its board slug in `EXTRA_GREENHOUSE`, `EXTRA_LEVER` or `EXTRA_ASHBY`. The URL shows it, for example `boards.greenhouse.io/<slug>` or `jobs.lever.co/<slug>`.
