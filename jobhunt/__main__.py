@@ -102,6 +102,7 @@ def cmd_apply(args, s) -> None:
             s, jd=jd, company=company, role=role, url=args.url or meta.get("url", ""),
             location=args.location or meta.get("location", ""), source=args.source or meta.get("source", ""),
             offline=args.offline, variant=args.variant, applied=args.applied, applied_with=args.applied_with or "",
+            replace=args.replace,
         )
     except (ValueError, RuntimeError) as exc:
         _fail(str(exc))
@@ -241,11 +242,20 @@ def cmd_discover(args, s) -> None:
 
     profile = load_profile(s.profile_path)
     sources = [x.strip() for x in args.sources.split(",") if x.strip()]
-    print(f"Fetching from {', '.join(sources)} (takes a few minutes; Lever is slow)...")
-    posts, errors = fetch_posts(sources)
-    for e in errors:
-        print(f"  warning: {e}")
-    rows = discover(profile, posts, s.data_dir / "leads", max_years=args.max_years, min_score=args.min_score)
+    from jobhunt.discover import load_cache, save_cache
+
+    cache = s.data_dir / "posts_cache.json"
+    posts = load_cache(cache) if args.cached else None
+    if posts is not None:
+        print(f"Re-scoring {len(posts)} posts fetched in the last 12 hours (drop --cached to refetch)...")
+    else:
+        print(f"Fetching from {', '.join(sources)} (takes a few minutes; Lever is slow)...")
+        posts, errors = fetch_posts(sources)
+        for e in errors:
+            print(f"  warning: {e}")
+        save_cache(posts, cache)
+    rows = discover(profile, posts, s.data_dir / "leads", max_years=args.max_years, min_score=args.min_score,
+                    title_filter=args.title, min_employees=args.min_employees)
     t = Tracker(s.tracker_path)
     added = t.add_leads(rows[: args.limit])
     t.save()
@@ -290,6 +300,7 @@ def main(argv: list[str] | None = None) -> None:
     a.add_argument("--variant", type=Path, help="use a tailoring JSON you wrote or edited (schema: tailoring.json)")
     a.add_argument("--applied", action="store_true", help="you already submitted it: mark Applied today")
     a.add_argument("--with", dest="applied_with", help="email address you applied with")
+    a.add_argument("--replace", metavar="ID", help="re-tailor an existing application (same ID and folder)")
 
     a = sub.add_parser("applied", help="mark an application as submitted")
     a.add_argument("id")
@@ -321,6 +332,9 @@ def main(argv: list[str] | None = None) -> None:
     a.add_argument("--max-years", type=int, default=4)
     a.add_argument("--min-score", type=int, default=35)
     a.add_argument("--limit", type=int, default=150)
+    a.add_argument("--title", help="regex the job title must match, e.g. 'software engineer|backend|ai engineer'")
+    a.add_argument("--min-employees", type=int, default=0, help="keep companies with at least this many employees (approx)")
+    a.add_argument("--cached", action="store_true", help="re-score the last fetch (under 12 hours old) instead of refetching")
 
     a = sub.add_parser("dashboard", help="build the HTML dashboard (jobhunt/data/dashboard.html)")
     a.add_argument("--open", action="store_true", help="open it in your browser")

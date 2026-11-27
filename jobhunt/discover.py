@@ -31,9 +31,27 @@ TRACK_LABELS = {"backend": "Backend", "fullstack": "Full Stack", "ai": "AI Engin
 # Boards on top of pipeline/sources/boards.py that hire experienced engineers in India. Kept here,
 # not in the pipeline, so the public fresher site is unchanged. Probed 26 Nov 2026 (India openings).
 EXTRA_GREENHOUSE = {"mongodb": "MongoDB", "databricks": "Databricks", "inmobi": "InMobi", "twilio": "Twilio",
-                    "truecaller": "Truecaller", "airbnb": "Airbnb"}
-EXTRA_LEVER = {"paytm": "Paytm", "hevodata": "Hevo Data", "mindtickle": "Mindtickle", "fampay": "FamPay"}
-EXTRA_ASHBY: dict[str, str] = {}
+                    "truecaller": "Truecaller", "airbnb": "Airbnb", "purestorage": "Pure Storage", "fivetran": "Fivetran",
+                    "toast": "Toast", "netskope": "Netskope", "agoda": "Agoda", "appian": "Appian", "zoominfo": "ZoomInfo",
+                    "coinbase": "Coinbase", "sumologic": "Sumo Logic", "samsara": "Samsara", "newrelic": "New Relic"}
+EXTRA_LEVER = {"paytm": "Paytm", "hevodata": "Hevo Data", "mindtickle": "Mindtickle", "fampay": "FamPay",
+               "pocketfm": "Pocket FM"}
+EXTRA_ASHBY: dict[str, str] = {"notion": "Notion"}
+EXTRA_SMARTRECRUITERS = {"Freshworks": "Freshworks"}
+
+# Approximate total headcount (public estimates, 2025-26) so `discover --min-employees` can keep
+# established companies. Rough numbers: check LinkedIn before relying on one.
+EMPLOYEES = {
+    "Rubrik": 3000, "Stripe": 8000, "HackerRank": 500, "Glance": 1000, "Zscaler": 7000, "Okta": 6000, "Elastic": 3000,
+    "GitLab": 2000, "Sigmoid": 1000, "Razorpay": 3000, "Groww": 2000, "Datadog": 6000, "Druva": 1000,
+    "Observe.AI": 300, "Zeta": 1500, "Meesho": 2000, "CRED": 1000, "Sarvam AI": 200, "Composio": 50, "Plane": 100,
+    "Atlan": 400, "Bosch": 400000, "Swiggy": 5000, "NielsenIQ": 30000, "Experian": 20000, "Sutherland": 38000,
+    "ServiceNow": 20000, "MongoDB": 5000, "Databricks": 7000, "InMobi": 1500, "Twilio": 5500, "Truecaller": 450,
+    "Airbnb": 7000, "Paytm": 10000, "Hevo Data": 250, "Mindtickle": 600, "FamPay": 150, "Pure Storage": 6000,
+    "Fivetran": 1300, "Toast": 5500, "Netskope": 3000, "Agoda": 7000, "Appian": 2000, "ZoomInfo": 3500,
+    "Coinbase": 3500, "Sumo Logic": 900, "Samsara": 3000, "New Relic": 2500, "Freshworks": 4500, "Pocket FM": 1000,
+    "Notion": 1000,
+}
 
 _SOFTWARE_TITLE = re.compile(
     r"engineer|developer|\bsde\b|programmer|full[ -]?stack|back[ -]?end|front[ -]?end|mobile|software|\bai\b|\bllm\b|genai",
@@ -45,13 +63,14 @@ _SKIP_TITLE = re.compile(
     r"|\bgtm\b|people systems|customer (?:success|experience)|power (?:bi|automate|apps)|\bbi\b|asset management"
     r"|specialist|measurement|\bnpd\b|devsecops|ml ?ops|research|database migration|stibo|oracle|deep learning"
     r"|data scientist|devops|\bsre\b|site reliability|security|embedded|hardware|firmware|manager|director|\blead\b"
-    r"|principal|staff|head|architect|salesforce|\bsap\b|\bjava\b|\.net|\bphp\b|golang|\bgo\b|ruby|c\+\+|scala"
+    r"|principal|(?<!technical )staff|head|architect|salesforce|\bsap\b|\bjava\b|\.net|\bphp\b|golang|\bgo\b|ruby|c\+\+|scala"
     r"|mainframe|network|verification|vlsi|analog|mechanical|electrical",
     re.I,
 )
 
 
-def score_post(profile: Profile, post, *, max_years: int = 4) -> dict | None:
+def score_post(profile: Profile, post, *, max_years: int = 4, title_filter: str | None = None,
+               min_employees: int = 0) -> dict | None:
     """A Leads-sheet row for a post worth looking at, or None."""
     from pipeline.filters import looks_senior
     from pipeline.normalize import clean_title, html_to_text
@@ -59,6 +78,10 @@ def score_post(profile: Profile, post, *, max_years: int = 4) -> dict | None:
     # "IN_Bosch Rexroth India_Test Automation" -> "Test Automation"; underscores hide word boundaries.
     title = re.sub(r"_+", " ", clean_title(post.title or "")).strip()
     if not _SOFTWARE_TITLE.search(title) or _SKIP_TITLE.search(title) or looks_senior(title):
+        return None
+    if title_filter and not re.search(title_filter, title, re.I):
+        return None
+    if min_employees and EMPLOYEES.get(post.company, 0) < min_employees:
         return None
     desc = html_to_text(post.description or "")
     years = years_required(desc)
@@ -83,6 +106,7 @@ def score_post(profile: Profile, post, *, max_years: int = 4) -> dict | None:
         "title": title,
         "location": post.location,
         "exp": f"{years}+ yrs" if years is not None else "",
+        "employees": EMPLOYEES.get(post.company),
         "score": score,
         "track": TRACK_LABELS[track],
         "matched": ", ".join(cov["matched"]),
@@ -113,8 +137,11 @@ def fetch_posts(sources: list[str]) -> tuple[list, list[str]]:
     class Ashby(AshbySource):
         companies = {**AshbySource.companies, **EXTRA_ASHBY}
 
+    class SmartRecruiters(SmartRecruitersSource):
+        companies = {**SmartRecruitersSource.companies, **EXTRA_SMARTRECRUITERS}
+
     classes = {"greenhouse": Greenhouse, "lever": Lever, "ashby": Ashby,
-               "smartrecruiters": SmartRecruitersSource, "adzuna": DiscoverAdzuna}
+               "smartrecruiters": SmartRecruiters, "adzuna": DiscoverAdzuna}
     posts, errors = [], []
     with make_client() as client:
         for name in sources:
@@ -137,11 +164,29 @@ def fetch_posts(sources: list[str]) -> tuple[list, list[str]]:
     return posts, errors
 
 
-def discover(profile: Profile, posts: list, leads_dir: Path, *, max_years: int = 4, min_score: int = 35) -> list[dict]:
+def save_cache(posts: list, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("[\n" + ",\n".join(p.model_dump_json() for p in posts) + "\n]", encoding="utf-8")
+
+
+def load_cache(path: Path, max_age_hours: float = 12) -> list | None:
+    """Posts from the last fetch, if it's recent enough to re-score without refetching."""
+    import json
+    import time
+
+    from core.models import RawPost
+
+    if not path.exists() or time.time() - path.stat().st_mtime > max_age_hours * 3600:
+        return None
+    return [RawPost.model_validate(x) for x in json.loads(path.read_text(encoding="utf-8"))]
+
+
+def discover(profile: Profile, posts: list, leads_dir: Path, *, max_years: int = 4, min_score: int = 35,
+             title_filter: str | None = None, min_employees: int = 0) -> list[dict]:
     """Score posts, keep the good ones (best first) and save their descriptions for `apply --lead`."""
     rows, seen = [], set()
     for post in posts:
-        row = score_post(profile, post, max_years=max_years)
+        row = score_post(profile, post, max_years=max_years, title_filter=title_filter, min_employees=min_employees)
         if row is None or row["score"] < min_score or row["url"] in seen:
             continue
         seen.add(row["url"])

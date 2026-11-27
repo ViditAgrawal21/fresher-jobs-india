@@ -87,7 +87,7 @@ LEAD_COLUMNS = [
     ("Found On", 12, "found"), ("Company", 20, "company"), ("Title", 34, "title"), ("Location", 18, "location"),
     ("Exp Required", 10, "exp"), ("Match %", 8, "score"), ("Track", 11, "track"), ("Matched Skills", 36, "matched"),
     ("Missing Skills", 26, "missing"), ("Source", 12, "source"), ("URL", 36, "url"), ("Posted", 12, "posted"),
-    ("Decision", 10, "decision"), ("Lead Key", 30, "key"),
+    ("Decision", 10, "decision"), ("Lead Key", 30, "key"), ("Employees (approx)", 11, "employees"),
 ]
 LCOL = {key: i + 1 for i, (_, _, key) in enumerate(LEAD_COLUMNS)}
 
@@ -459,6 +459,11 @@ class Tracker:
         self.leads = self.wb["Leads"]
         self.mail = self.wb["Email Log"]
         self.col = self._column_map()
+        for name, width, key in LEAD_COLUMNS:  # columns added to Leads in newer versions
+            h = self.leads.cell(row=1, column=LCOL[key])
+            if h.value is None:
+                h.value, h.font, h.fill = name, HEADER_FONT, HEADER_FILL
+                self.leads.column_dimensions[get_column_letter(LCOL[key])].width = width
 
     def _column_map(self) -> dict[str, int]:
         """Columns found by header name, so moving columns in Excel doesn't break anything.

@@ -29,7 +29,7 @@ def _cost(usage: dict) -> float | None:
 
 def prepare_application(settings: JobhuntSettings, *, jd: str, company: str, role: str, url: str = "",
                         location: str = "", source: str = "", offline: bool = False, variant: Path | None = None,
-                        applied: bool = False, applied_with: str = "") -> dict:
+                        applied: bool = False, applied_with: str = "", replace: str | None = None) -> dict:
     if len(jd.strip()) < 200:
         raise ValueError("The job description looks too short (under 200 characters). Paste the full posting.")
     profile = load_profile(settings.profile_path)
@@ -39,8 +39,13 @@ def prepare_application(settings: JobhuntSettings, *, jd: str, company: str, rol
                     effort=settings.tailor_effort, api_key=settings.anthropic_api_key, manual=manual)
 
     tracker = Tracker(settings.tracker_path)  # opened before writing files, so a locked workbook fails early
-    app_id = tracker.next_id()
+    existing = tracker.find(replace) if replace else None
+    if replace and existing is None:
+        raise ValueError(f"no application {replace} to replace")
+    app_id = existing["id"] if existing else tracker.next_id()
     folder = settings.data_dir / "applications" / f"{app_id}_{slug(company, 24)}_{slug(role, 32)}"
+    if existing and existing["resume"]:
+        folder = (settings.data_dir / str(existing["resume"])).parent  # same folder, files overwritten
     folder.mkdir(parents=True, exist_ok=True)
     pdf = folder / f"{profile.name.replace(' ', '_')}_Resume.pdf"
     with Renderer(settings.chromium_path) as renderer:
@@ -54,17 +59,22 @@ def prepare_application(settings: JobhuntSettings, *, jd: str, company: str, rol
 
     years = years_required(jd)
     fit = result.tailoring.fit
-    tracker.add_application(
-        id=app_id, company=company, role=role, track=TRACK_LABELS.get(result.tailoring.track, "Other"),
+    row = dict(
+        company=company, role=role, track=TRACK_LABELS.get(result.tailoring.track, "Other"),
         location=location, source=source or None, url=url or None,
         exp_required=f"{years}+ years" if years is not None else fit.years_required,
         fit=fit.score, match=result.keyword_coverage["coverage_pct"],
         matched=", ".join(result.keyword_coverage["matched"]), missing=", ".join(result.keyword_coverage["missing"]),
         resume=str(pdf.relative_to(settings.data_dir)),
-        status="Applied" if applied else "Tailored",
-        date_applied=date.today() if applied else None,
-        applied_with=applied_with or (settings.candidate_email if applied else None),
     )
+    if applied or not existing:  # a re-tailor keeps the row's status and dates
+        row |= dict(status="Applied" if applied else "Tailored", date_applied=date.today() if applied else None,
+                    applied_with=applied_with or (settings.candidate_email if applied else None))
+    if existing:
+        tracker.update(app_id, **row)
+        tracker.append_note(app_id, f"[{date.today():%d %b}] resume re-tailored ({result.source})")
+    else:
+        tracker.add_application(id=app_id, **row)
     tracker.save()
     return {"id": app_id, "folder": folder, "pdf": pdf, "pages": pages, "cuts": cuts, "ats": ats,
             "result": result, "report": report}
