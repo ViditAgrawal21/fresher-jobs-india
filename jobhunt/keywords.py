@@ -190,7 +190,7 @@ def numbers_in(text: str) -> set[str]:
 
 
 _YEARS_RE = re.compile(
-    r"(\d{1,2})(?:\.\d)?\s*(?:\+|plus)?\s*(?:(?:-|–|—|to)\s*(\d{1,2})\s*)?\+?\s*(?:years?|yrs?)\b",
+    r"(\d{1,2})(?:\.\d)?\s*(?:\+|plus)?\s*(?:(?:-|–|—|to)\s*(\d{1,2})(?:\.\d)?\s*)?\+?\s*(?:years?|yrs?)\b",
     re.I,
 )
 # "N years" that is about the company or the past, not a requirement.

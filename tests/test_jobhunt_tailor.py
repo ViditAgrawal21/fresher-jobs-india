@@ -43,6 +43,7 @@ def test_numbers_ignore_tech_names():
     ("2-4 years of experience in Node.js", 2),
     ("3+ years of experience overall; 1+ year with Docker", 3),
     ("Experience: 5 to 8 yrs", 5),
+    ("2.5 - 4.5 years of relevant backend engineering experience", 2),
     ("We were founded 10 years ago", None),
     ("no requirement stated", None),
 ])
