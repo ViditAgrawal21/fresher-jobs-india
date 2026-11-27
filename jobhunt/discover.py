@@ -52,7 +52,7 @@ EMPLOYEES = {
     "Fivetran": 1300, "Toast": 5500, "Netskope": 3000, "Agoda": 7000, "Appian": 2000, "ZoomInfo": 3500,
     "Coinbase": 3500, "Sumo Logic": 900, "Samsara": 3000, "New Relic": 2500, "Freshworks": 4500, "Pocket FM": 1000,
     "Notion": 1000, "Zenoti": 1200, "CloudSEK": 300, "Harness": 1200, "Contentstack": 500, "Acceldata": 300,
-    "SpotDraft": 200,
+    "SpotDraft": 200, "Akamai": 10000,
 }
 
 
