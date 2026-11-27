@@ -14,7 +14,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 from markupsafe import Markup
 
-from jobhunt.discover import lead_description
+from jobhunt.discover import EMPLOYEES, lead_description
 from jobhunt.keywords import DOMAIN
 from jobhunt.profile import load_profile
 from jobhunt.settings import JobhuntSettings
@@ -83,6 +83,9 @@ def build_data(settings: JobhuntSettings, today: date | None = None) -> dict:
             "match": match if isinstance(match, (int, float)) else None,
             "matched": matched, "missing": missing,
             "url": a["url"] or "",
+            "employees": EMPLOYEES.get(a["company"]),
+            # Ordering hint for the board: 2 = advised against, 1 = under 500 employees, 0 = go.
+            "flag": 2 if "Not recommended" in str(a["notes"] or "") else 1 if "Under 500 employees" in str(a["notes"] or "") else 0,
             "resume": str(a["resume"]).replace("\\", "/") if a["resume"] and (data_dir / str(a["resume"])).exists() else None,
             "report": rel("report.md"), "jd": rel("job_description.txt"),
         })
@@ -109,6 +112,8 @@ def build_data(settings: JobhuntSettings, today: date | None = None) -> dict:
         "name": profile.name,
         "today": today.isoformat(),
         "generated": datetime.now().strftime("%d %b %Y, %H:%M"),
+        # Status changes saved from the hosted dashboard after this moment override the tracker's.
+        "built_ms": int(datetime.now().timestamp() * 1000),
         "follow_days": settings.followup_after_days,
         "supported": sorted(profile.supported_terms()),
         "domain": sorted(DOMAIN),

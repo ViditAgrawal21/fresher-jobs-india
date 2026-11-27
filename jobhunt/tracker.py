@@ -33,9 +33,10 @@ DATE_FMT = "dd-mmm-yyyy"
 FORMULA_ROWS = 1000  # rows pre-filled with formulas / validation so hand-typed rows work too
 
 # Funnel order. Higher = further along. Terminal statuses are handled separately.
-STATUSES = ["Lead", "Tailored", "Applied", "Acknowledged", "Viewed", "Assessment", "Interviewing",
+# "Replied" = a person answered (set by hand or from the dashboard); "Acknowledged" = an automatic receipt.
+STATUSES = ["Lead", "Tailored", "Applied", "Acknowledged", "Viewed", "Replied", "Assessment", "Interviewing",
             "Offer", "Accepted", "Rejected", "Ghosted", "Withdrawn"]
-STAGE = {"Lead": 0, "Tailored": 1, "Applied": 2, "Acknowledged": 3, "Viewed": 3, "Assessment": 4,
+STAGE = {"Lead": 0, "Tailored": 1, "Applied": 2, "Acknowledged": 3, "Viewed": 3, "Replied": 3, "Assessment": 4,
          "Interviewing": 5, "Offer": 6, "Accepted": 7}
 TERMINAL = {"Accepted", "Rejected", "Withdrawn"}
 SENT = [s for s in STATUSES if s not in ("Lead", "Tailored")]
@@ -103,7 +104,7 @@ WEEK_TARGETS = [(date(2026, 11, 30), 5)] + [(date(2026, 12, 7) + timedelta(weeks
     + [(date(2027, 3, 1) + timedelta(weeks=i), 10) for i in range(5)]
 
 STATUS_COLORS = {
-    "Applied": "DDEBF7", "Acknowledged": "E2EFDA", "Viewed": "E2EFDA", "Assessment": "FFF2CC",
+    "Applied": "DDEBF7", "Acknowledged": "E2EFDA", "Viewed": "E2EFDA", "Replied": "E2EFDA", "Assessment": "FFF2CC",
     "Interviewing": "FCE4D6", "Offer": "C6EFCE", "Accepted": "A9D08E", "Rejected": "F4CCCC",
     "Ghosted": "EDEDED", "Withdrawn": "EDEDED", "Tailored": "F2F2F2",
 }
@@ -459,11 +460,23 @@ class Tracker:
         self.leads = self.wb["Leads"]
         self.mail = self.wb["Email Log"]
         self.col = self._column_map()
+        self._upgrade_status_list()
         for name, width, key in LEAD_COLUMNS:  # columns added to Leads in newer versions
             h = self.leads.cell(row=1, column=LCOL[key])
             if h.value is None:
                 h.value, h.font, h.fill = name, HEADER_FONT, HEADER_FILL
                 self.leads.column_dimensions[get_column_letter(LCOL[key])].width = width
+
+    def _upgrade_status_list(self) -> None:
+        """Workbooks made before a status was added: refresh the Status dropdown source and its range."""
+        lists = self.wb["Lists"]
+        if [lists.cell(row=i + 2, column=1).value for i in range(len(STATUSES))] == STATUSES:
+            return
+        for i, v in enumerate(STATUSES, start=2):
+            lists.cell(row=i, column=1, value=v).font = BODY_FONT
+        for dv in self.apps.data_validations.dataValidation:
+            if dv.formula1 and dv.formula1.startswith("Lists!$A$2"):
+                dv.formula1 = f"Lists!$A$2:$A${len(STATUSES) + 1}"
 
     def _column_map(self) -> dict[str, int]:
         """Columns found by header name, so moving columns in Excel doesn't break anything.

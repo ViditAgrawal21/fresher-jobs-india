@@ -91,6 +91,25 @@
   .bar { position: relative; height: 6px; background: var(--grid); border-radius: 3px; width: 64px; margin-top: 4px; }
   .bar > span { position: absolute; left: 0; top: 0; bottom: 0; background: var(--have); border-radius: 0 3px 3px 0; }
   .files a { color: var(--have); text-decoration: none; margin-right: 8px; white-space: nowrap; }
+  .board-wrap { overflow-x: auto; padding-bottom: 4px; }
+  .board { display: grid; grid-template-columns: repeat(7, minmax(196px, 1fr)); gap: 10px; min-width: 1420px; }
+  .col { background: var(--page); border: 1px solid var(--ring); border-radius: 10px; padding: 8px; min-width: 0; }
+  .col h3 { font-size: 13px; margin: 2px 4px 8px; display: flex; justify-content: space-between; gap: 8px; }
+  .col h3 .n { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .card-app { background: var(--surface); border: 1px solid var(--ring); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+  .card-app .co { font-weight: 600; font-size: 13px; }
+  .card-app .ro { color: var(--ink-2); font-size: 12px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2;
+                  -webkit-box-orient: vertical; overflow: hidden; }
+  .card-app .meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 11.5px; color: var(--ink-2); margin-top: 6px; }
+  .card-app .acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; align-items: center; }
+  .card-app .acts a { color: var(--have); text-decoration: none; font-size: 12.5px; }
+  .card-app .acts a:hover { text-decoration: underline; }
+  .card-app button.go { min-height: 30px; padding: 2px 10px; font-size: 12.5px; background: var(--have); color: #ffffff; border-color: var(--have); }
+  .card-app select { min-height: 30px; padding: 2px 6px; font-size: 12.5px; max-width: 100%; }
+  .more { width: 100%; font-size: 12.5px; min-height: 30px; }
+  .board-note { font-size: 12.5px; color: var(--ink-2); }
+  .board-note.err { color: var(--crit); }
+  .empty-col { font-size: 12px; color: var(--ink-2); padding: 4px; }
   .files a:hover { text-decoration: underline; }
   code { font-size: 12px; background: var(--page); padding: 1px 5px; border-radius: 4px; border: 1px solid var(--ring); white-space: nowrap; }
   .tip { position: fixed; pointer-events: none; background: var(--surface); color: var(--ink); border: 1px solid var(--ring);
@@ -125,6 +144,14 @@
   </div>
 
   <section class="kpis" id="kpis" aria-label="Key numbers"></section>
+
+  <section class="card" style="margin-bottom:16px" aria-labelledby="pipe-h">
+    <div class="card-head">
+      <div><h2 id="pipe-h">Pipeline</h2><div class="sub">Every application by stage. Ready to apply puts your shortlist first (best fit at 500+ employee companies); other columns show the latest change first.</div></div>
+      <div class="board-note" id="board-note" role="status"></div>
+    </div>
+    <div class="board-wrap"><div class="board" id="board"></div></div>
+  </section>
 
   <section class="grid">
     <div class="card">
@@ -182,10 +209,35 @@
   "use strict";
   const D = JSON.parse(document.getElementById("jh-data").textContent);
   const NS = "http://www.w3.org/2000/svg";
-  const RESPONDED = new Set(["Viewed", "Assessment", "Interviewing", "Offer", "Accepted", "Rejected"]);
+  const RESPONDED = new Set(["Viewed", "Replied", "Assessment", "Interviewing", "Offer", "Accepted", "Rejected"]);
   const SIGNAL_RESP = new Set(["Viewed", "Assessment", "Interview", "Offer", "Rejected"]);
   const INTERVIEW = new Set(["Assessment", "Interviewing", "Offer", "Accepted"]);
-  const today = new Date(D.today + "T00:00:00");
+  const localIso = d => new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+  const TODAY = localIso(new Date());
+  const today = new Date(TODAY + "T00:00:00");
+
+  // ---------- pipeline stages and status changes saved from this page ----------
+  const STAGES = [
+    ["Ready to apply", ["Lead", "Tailored"]], ["Submitted", ["Applied", "Acknowledged"]], ["Replied", ["Replied", "Viewed"]],
+    ["Assessment", ["Assessment"]], ["Interviewing", ["Interviewing"]], ["Offer", ["Offer", "Accepted"]],
+    ["Closed", ["Rejected", "Ghosted", "Withdrawn"]],
+  ];
+  const MOVES = [["Tailored", "Ready to apply"], ["Applied", "Submitted"], ["Replied", "Got a reply"],
+    ["Assessment", "Assessment or test"], ["Interviewing", "Interviewing"], ["Offer", "Offer"], ["Accepted", "Accepted"],
+    ["Rejected", "Rejected"], ["Ghosted", "No reply (ghosted)"], ["Withdrawn", "Withdrawn"]];
+  const NEXT = { Lead: ["Applied", "Mark submitted"], Tailored: ["Applied", "Mark submitted"], Applied: ["Replied", "Got a reply"],
+    Acknowledged: ["Replied", "Got a reply"], Viewed: ["Interviewing", "Interview set"], Replied: ["Interviewing", "Interview set"],
+    Assessment: ["Interviewing", "Interview set"], Interviewing: ["Offer", "Got an offer"] };
+  const KNOWN = new Set(MOVES.map(m => m[0]));
+  const NOT_SENT = new Set(["Lead", "Tailored", "Withdrawn"]);
+  let overrides = new Map(), store = null, canWrite = false;
+  const showAll = new Set();
+  // A change saved here after this page was built wins over the tracker's status.
+  function effective(a) {
+    const o = overrides.get(a.id);
+    if (!o || !(o.updated_ms > D.built_ms)) return a;
+    return { ...a, status: o.status, changed: o.date, applied: a.applied || (NOT_SENT.has(o.status) ? null : o.date) };
+  }
   const state = { track: "All", period: "all", q: "", scope: "apps", sort: { key: "added", dir: -1 } };
 
   // ---------- theme (per-viewer preference; storage may be unavailable) ----------
@@ -208,7 +260,7 @@
   const hay = parts => parts.join(" ").toLowerCase().includes(state.q);
 
   function apps() {
-    return D.apps.filter(a => (state.track === "All" || a.track === state.track) && inPeriod(a.applied || a.added)
+    return D.apps.map(effective).filter(a => (state.track === "All" || a.track === state.track) && inPeriod(a.applied || a.added)
       && (!state.q || hay([a.company, a.role, a.status, a.source, ...a.matched, ...a.missing])));
   }
   function leads() {
@@ -345,7 +397,7 @@
       svgEl("line", { x1: left, x2: W, y1: y, y2: y, stroke: v ? "var(--grid)" : "var(--axis)" }, svg);
       svgEl("text", { x: left - 6, y: y + 4, "text-anchor": "end", class: "muted val" }, svg, String(v));
     }
-    const todayIso = D.today;
+    const todayIso = TODAY;
     weeks.forEach((w, i) => {
       const x = left + i * band + (band - bw) / 2, h = plotH * counts[i] / yMax, yT = top + plotH - plotH * w.target / yMax;
       const g = svgEl("g", {}, svg);
@@ -473,10 +525,97 @@
     }
   }
 
+  // ---------- pipeline board ----------
+  const boardNote = (text, err) => { const n = document.getElementById("board-note"); n.textContent = text; n.className = "board-note" + (err ? " err" : ""); };
+  const moveLabel = s => (MOVES.find(m => m[0] === s) || [s, s])[1];
+  function board(list) {
+    const host = document.getElementById("board"); host.textContent = "";
+    for (const [label, statuses] of STAGES) {
+      const when = a => String(a.changed || a.applied || a.added || "");
+      const items = list.filter(a => statuses.includes(a.status)).sort((x, y) =>
+        label === "Ready to apply" ? ((x.flag || 0) - (y.flag || 0)) || (y.fit ?? 0) - (x.fit ?? 0) : when(y).localeCompare(when(x)));
+      const col = node("div", { class: "col", role: "group", "aria-label": `${label}: ${items.length}` }, host);
+      const h = node("h3", {}, col); node("span", {}, h, label); node("span", { class: "n" }, h, String(items.length));
+      const limit = showAll.has(label) ? items.length : 6;
+      items.slice(0, limit).forEach(a => card(col, a, label));
+      if (items.length > limit) {
+        const b = node("button", { type: "button", class: "more" }, col, `Show all ${items.length}`);
+        b.addEventListener("click", () => { showAll.add(label); render(); });
+      }
+      if (!items.length) node("div", { class: "empty-col" }, col, "None yet");
+    }
+  }
+  function card(col, a, label) {
+    const c = node("div", { class: "card-app" }, col);
+    node("div", { class: "co" }, c, a.company);
+    node("div", { class: "ro", title: a.role }, c, a.role);
+    const m = node("div", { class: "meta" }, c);
+    node("span", {}, m, a.id || "");
+    if (a.fit !== null && a.fit !== undefined) node("span", { class: "pill" }, m, `fit ${a.fit}`);
+    const when = a.changed || a.applied;
+    if (when) node("span", {}, m, fmtDate(when));
+    if (followUp(a)) node("span", { class: "pill warn" }, m, "Follow up");
+    if (a.flag === 2) node("span", { class: "pill crit", title: "Weak match on the job's must-haves" }, m, "Not recommended");
+    else if (a.flag === 1) node("span", { class: "pill", title: "Under 500 employees" }, m, "Small company");
+    const acts = node("div", { class: "acts" }, c);
+    if (a.url && /^https?:\/\//.test(a.url)) node("a", { href: a.url, target: "_blank", rel: "noopener" }, acts, label === "Ready to apply" ? "Apply" : "Posting");
+    if (a.resume) node("a", { href: a.resume, target: "_blank", rel: "noopener" }, acts, "Resume");
+    if (!canWrite) return;
+    const nx = NEXT[a.status];
+    if (nx) {
+      const b = node("button", { type: "button", class: "go" }, acts, nx[1]);
+      b.addEventListener("click", () => move(a, nx[0]));
+    }
+    const sel = node("select", { id: `mv-${a.id}`, "aria-label": `Move ${a.company}, ${a.role} to` }, acts);
+    node("option", { value: "" }, sel, "Move to…");
+    for (const [v, l] of MOVES) if (v !== a.status) node("option", { value: v }, sel, l);
+    sel.addEventListener("change", () => { if (sel.value) move(a, sel.value); });
+  }
+  async function move(a, status) {
+    const prev = overrides.get(a.id);
+    const body = { status, date: TODAY, updated_ms: Date.now(), company: String(a.company).slice(0, 80), role: String(a.role).slice(0, 120) };
+    overrides = new Map(overrides); overrides.set(a.id, body); render();
+    try {
+      await store.collection("status").doc(a.id).set(body);
+      boardNote(`${a.company}: saved as ${moveLabel(status)}.`);
+    } catch (e) {
+      overrides = new Map(overrides);
+      if (prev) overrides.set(a.id, prev); else overrides.delete(a.id);
+      if (e && e.code === "invalid_argument") { canWrite = false; boardNote("You can view this dashboard but not change it.", true); }
+      else boardNote("Couldn't save that change. Try again in a moment.", true);
+      render();
+    }
+  }
+  async function connect() {
+    if (typeof window.claude?.use !== "function") {
+      boardNote("Buttons appear on the hosted dashboard. Here, use python -m jobhunt applied / status.");
+      return;
+    }
+    const [db, user] = await Promise.all([window.claude.use("db"), window.claude.use("user")]);
+    if (!db) { boardNote(`Saving isn't available in this view; showing the tracker as of ${D.generated}.`); return; }
+    store = db;
+    let can = null;
+    try { can = user ? await user.can("data.write") : null; } catch (e) { can = null; }
+    canWrite = can !== false;
+    boardNote("Loading your saved updates…");
+    const timer = setTimeout(() => boardNote(`Saved updates are slow to load; showing the tracker as of ${D.generated}.`), 10000);
+    db.collection("status").onSnapshot(snap => {
+      clearTimeout(timer);
+      const next = new Map();
+      for (const d of snap.docs) {
+        const v = d.data();
+        if (v && KNOWN.has(v.status) && /^\d{4}-\d{2}-\d{2}$/.test(String(v.date)) && typeof v.updated_ms === "number") next.set(d.id, v);
+      }
+      overrides = next;
+      boardNote(canWrite ? "Tap a button to move an application. Changes save instantly." : "View only.");
+      render();
+    }, err => { clearTimeout(timer); boardNote(`Couldn't load saved updates (${(err && err.code) || "error"}).`, true); });
+  }
+
   // ---------- wiring ----------
   function render() {
     const list = apps();
-    kpis(list); funnel(list); weekly(list); market(list); byMatch(list); bySource(list); appsTable(list); leadsTable(leads());
+    kpis(list); board(list); funnel(list); weekly(list); market(list); byMatch(list); bySource(list); appsTable(list); leadsTable(leads());
   }
   document.getElementById("generated").textContent = `Built ${D.generated} from tracker.xlsx`;
   document.getElementById("f-track").addEventListener("change", e => { state.track = e.target.value; render(); });
@@ -488,6 +627,7 @@
     market(apps());
   }));
   render();
+  connect();
   let resizeTimer;
   addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 150); });
 })();

@@ -264,6 +264,33 @@ def cmd_discover(args, s) -> None:
         print(f"  {r['score']:3}  {r['company']} / {r['title']}  ({r['exp'] or 'exp not stated'})")
 
 
+def cmd_import_status(args, s) -> None:
+    """Apply status changes made on the hosted dashboard: a JSON list of {id, status, date[, note]}."""
+    import json
+
+    t = Tracker(s.tracker_path)
+    changes = json.loads(Path(args.file).read_text(encoding="utf-8"))
+    for c in changes:
+        status = next((x for x in STATUSES if x.lower() == str(c.get("status", "")).lower()), None)
+        app = t.find(str(c.get("id", "")))
+        if status is None or app is None:
+            print(f"  skipped {c.get('id')}: unknown status or ID")
+            continue
+        day = _date(c.get("date")) or date.today()
+        values = {"status": status}
+        if status not in ("Lead", "Tailored", "Withdrawn") and not app["date_applied"]:
+            values["date_applied"] = day
+        if status in ("Replied", "Assessment", "Interviewing", "Offer", "Rejected"):
+            values["email_received"] = "Yes"
+        if app["status"] == status and all(app[k] == v for k, v in values.items() if k != "status"):
+            continue
+        t.update(app["id"], **values)
+        t.append_note(app["id"], f"[{day:%d %b}] dashboard: {app['status']} -> {status}"
+                      + (f" ({c['note']})" if c.get("note") else ""))
+        print(f"  {app['id']} {app['company']}: {app['status']} -> {status}")
+    t.save()
+
+
 def cmd_dashboard(args, s) -> None:
     from jobhunt.dashboard import write_dashboard
 
@@ -336,6 +363,9 @@ def main(argv: list[str] | None = None) -> None:
     a.add_argument("--min-employees", type=int, default=0, help="keep companies with at least this many employees (approx)")
     a.add_argument("--cached", action="store_true", help="re-score the last fetch (under 12 hours old) instead of refetching")
 
+    a = sub.add_parser("import-status", help="apply status changes saved on the hosted dashboard (JSON file)")
+    a.add_argument("file")
+
     a = sub.add_parser("dashboard", help="build the HTML dashboard (jobhunt/data/dashboard.html)")
     a.add_argument("--open", action="store_true", help="open it in your browser")
 
@@ -343,7 +373,7 @@ def main(argv: list[str] | None = None) -> None:
     s = get_settings()
     {"init": cmd_init, "resume": cmd_resume, "apply": cmd_apply, "applied": cmd_applied, "status": cmd_status,
      "list": cmd_list, "followups": cmd_followups, "sync-mail": cmd_sync_mail, "discover": cmd_discover,
-     "dashboard": cmd_dashboard}[args.cmd](args, s)
+     "dashboard": cmd_dashboard, "import-status": cmd_import_status}[args.cmd](args, s)
 
 
 if __name__ == "__main__":
