@@ -79,9 +79,13 @@ APP_COLUMNS = [
     ("Follow-up", 11, "followup"),
     ("Recruiter / Contact", 20, "contact"),
     ("Notes", 40, "notes"),
+    # Filled by `verify`: when the company first published the job, and whether it's still open.
+    ("Job Posted On", 12, "posted"),
+    ("Job Still Open?", 11, "posting"),
+    ("Last Checked", 12, "checked"),
 ]
 COL = {key: i + 1 for i, (_, _, key) in enumerate(APP_COLUMNS)}
-DATE_KEYS = {"date_added", "date_applied", "last_email_date", "next_step_date"}
+DATE_KEYS = {"date_added", "date_applied", "last_email_date", "next_step_date", "posted", "checked"}
 FORMULA_KEYS = {"days_since", "followup"}
 
 LEAD_COLUMNS = [

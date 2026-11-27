@@ -2,7 +2,8 @@
 
 A personal job-search toolkit that lives next to the Fresher Jobs India pipeline and reuses its job sources.
 
-1. **Discover** jobs on company boards (Greenhouse, Lever, Ashby, SmartRecruiters, plus Adzuna) that fit your stack and have at most 4 years of experience required.
+1. **Discover** jobs on company boards (Greenhouse, Lever, Ashby, SmartRecruiters, plus Adzuna) that fit your stack and have at most 4 years of experience required. Only jobs published in the last 30 days are kept (`FRESH_JOB_DAYS`). Listings from recruiters, staffing firms or unnamed companies, or with scam signs (registration fees, "WhatsApp your CV"), are dropped.
+   **Verify** that each job is real and still open by asking the company's own job board, which the careers page itself reads from. This runs on its own once a day when the dashboard starts, and again right before autofill. Closed jobs move to Withdrawn. Jobs published over 60 days ago (`STALE_JOB_DAYS`) are marked old, hidden by default and skipped by autofill. Jobs with a deadline go to the top.
 2. **Apply**: tailor a one-page resume to each posting with Claude, under a guard that blocks invented facts, render it to PDF, check the ATS text layer, and add a tracker row.
 3. **Track** everything in one Excel workbook: status, the email you applied with, replies, follow-ups, and weekly targets against actual.
 4. **Sync Gmail** to mark which companies replied and move statuses forward (acknowledged, assessment, interview, offer, rejected). Confirmation emails for jobs you applied to elsewhere ("your application was sent to X" from LinkedIn, Naukri, Aperture or an ATS) add a tracker row automatically, so every application is counted.
@@ -93,9 +94,10 @@ Without an API key, or with `--offline`, tailoring is keyword-based and free. It
 | `list [--status S]` | Applications in the terminal |
 | `followups` | Applied 7+ days ago with no reply, plus a draft message |
 | `sync-mail [--since DATE] [--dry-run]` | Read Gmail, update replies and statuses, log every match |
-| `discover [--max-years 4] [--min-score 35]` | Fetch and score openings into the Leads sheet |
+| `discover [--max-years 4] [--min-score 35] [--max-age-days 30]` | Fetch and score fresh openings from employers into the Leads sheet |
 | `serve [--port 8765]` | The dashboard on localhost. Moves save to the tracker, links open each resume and report, and Autofill buttons work |
 | `autofill IDS \| --all-ready [--limit 5]` | Autofill from the terminal: open and fill those forms, then you check and submit each one |
+| `verify [IDS]` | Ask each company's job board whether Ready jobs are still open and when they were published; closed ones move to Withdrawn |
 | `dashboard [--open]` | Build a static `jobhunt/data/dashboard.html` (read-only) from the tracker and application folders |
 
 `discover` checks the boards in `pipeline/sources/boards.py` plus the extra experienced-hire boards in `jobhunt/discover.py` (Paytm, MongoDB, Databricks, Hevo Data, InMobi, Mindtickle, Twilio, FamPay, Truecaller, Airbnb). To add a company, put its board slug in `EXTRA_GREENHOUSE`, `EXTRA_LEVER` or `EXTRA_ASHBY`. The URL shows it, for example `boards.greenhouse.io/<slug>` or `jobs.lever.co/<slug>`.

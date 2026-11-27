@@ -148,6 +148,10 @@
       <option value="all">All company sizes</option><option value="500-1,000">500–1,000 employees</option>
       <option value="mid">Mid-size (300–2,000)</option><option value="large">Large (2,000+)</option>
     </select>
+    <select id="f-age" aria-label="Job age (for jobs not sent yet)">
+      <option value="hide-old" selected>Hide old jobs</option><option value="fresh">Fresh jobs only</option>
+      <option value="all">Jobs of any age</option>
+    </select>
     <select id="f-period" aria-label="Period">
       <option value="all">All time</option><option value="30">Last 30 days</option><option value="7">Last 7 days</option>
     </select>
@@ -158,13 +162,14 @@
 
   <section class="card" style="margin-bottom:16px" aria-labelledby="pipe-h">
     <div class="card-head">
-      <div><h2 id="pipe-h">Pipeline</h2><div class="sub">Every application by stage. Ready to apply puts 500–1,000 employee companies first, then other mid-size firms, each by fit; other columns show the latest change first.</div></div>
+      <div><h2 id="pipe-h">Pipeline</h2><div class="sub">Every application by stage. Ready to apply puts fresh jobs first (published in the last {{ fresh_days }} days), then by company size (500–1,000 employees first) and fit. Jobs over {{ stale_days }} days old are hidden unless you pick "Jobs of any age". Other columns show the latest change first.</div></div>
       <div class="pipe-tools">
         <div class="af-bar" id="af-bar" hidden>
           <label for="af-n">Autofill the top</label>
           <select id="af-n"><option>3</option><option selected>5</option><option>10</option></select>
           <span>ready jobs</span>
           <button type="button" id="af-all" class="go">Start autofill</button>
+          <button type="button" id="vf-btn" title="Ask each company's job board whether the job is still open, and when it was published">Check jobs are still open</button>
         </div>
         <div class="board-note" id="board-note" role="status"></div>
       </div>
@@ -263,7 +268,9 @@
     if (!o || !(o.updated_ms > D.built_ms)) return a;
     return { ...a, status: o.status, changed: o.date, applied: a.applied || (NOT_SENT.has(o.status) ? null : o.date) };
   }
-  const state = { track: "All", size: "all", period: "all", q: "", scope: "apps", sort: { key: "added", dir: -1 } };
+  const state = { track: "All", size: "all", age: "hide-old", period: "all", q: "", scope: "apps", sort: { key: "added", dir: -1 } };
+  // The job-age cap only applies to Ready to apply: once a job is sent or closed, its post date no longer matters.
+  const ageOk = a => !["Lead", "Tailored"].includes(a.status) || state.age === "all" || (state.age === "fresh" ? a.fresh === "fresh" : a.fresh !== "old");
   const sizeOk = x => state.size === "all" || x.size === state.size
     || (state.size === "mid" && (x.size === "500-1,000" || x.size === "mid-size"));
 
@@ -280,14 +287,15 @@
   const days = iso => iso ? Math.round((today - new Date(iso + "T00:00:00")) / 864e5) : null;
   const fmtDate = iso => iso ? new Date(iso + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "–";
   const pct = (a, b) => b ? Math.round(100 * a / b) : 0;
-  const isSent = a => !!a.applied || !["Lead", "Tailored"].includes(a.status);
+  // Withdrawn without an applied date = dropped (or the job closed) before applying: never sent.
+  const isSent = a => !!a.applied || !["Lead", "Tailored", "Withdrawn"].includes(a.status);
   const responded = a => RESPONDED.has(a.status) || SIGNAL_RESP.has(a.signal);
   const followUp = a => ["Applied", "Acknowledged"].includes(a.status) && days(a.applied) >= D.follow_days && !responded(a);
   const inPeriod = iso => state.period === "all" || (iso && days(iso) <= +state.period);
   const hay = parts => parts.join(" ").toLowerCase().includes(state.q);
 
   function apps() {
-    return D.apps.map(effective).filter(a => (state.track === "All" || a.track === state.track) && sizeOk(a) && inPeriod(a.applied || a.added)
+    return D.apps.map(effective).filter(a => (state.track === "All" || a.track === state.track) && sizeOk(a) && ageOk(a) && inPeriod(a.applied || a.added)
       && (!state.q || hay([a.company, a.role, a.status, a.source, ...a.matched, ...a.missing])));
   }
   function leads() {
@@ -547,7 +555,7 @@
       node("td", {}, tr, l.location);
       node("td", { class: "num" }, tr, l.exp || "–");
       chips(node("td", {}, tr), l.matched, l.missing);
-      node("td", { class: "num" }, tr, fmtDate(l.posted));
+      node("td", { class: "num" }, tr, l.posted ? `${fmtDate(l.posted)} (${l.age}d)` : "–");
       const n = node("td", {}, tr); node("code", {}, n, `python -m jobhunt apply --lead ${l.row}`);
     }
   }
@@ -560,7 +568,7 @@
     for (const [label, statuses] of STAGES) {
       const when = a => String(a.changed || a.applied || a.added || "");
       const items = list.filter(a => statuses.includes(a.status)).sort((x, y) =>
-        label === "Ready to apply" ? ((x.flag || 0) - (y.flag || 0)) || (y.fit ?? 0) - (x.fit ?? 0) : when(y).localeCompare(when(x)));
+        label === "Ready to apply" ? ((x.rank ?? x.flag ?? 0) - (y.rank ?? y.flag ?? 0)) || (y.fit ?? 0) - (x.fit ?? 0) : when(y).localeCompare(when(x)));
       const col = node("div", { class: "col", role: "group", "aria-label": `${label}: ${items.length}` }, host);
       const h = node("h3", {}, col); node("span", {}, h, label); node("span", { class: "n" }, h, String(items.length));
       const limit = showAll.has(label) ? items.length : 6;
@@ -572,6 +580,18 @@
       if (!items.length) node("div", { class: "empty-col" }, col, "None yet");
     }
   }
+  function agePill(host, a) {
+    const checked = a.checked ? `, checked ${fmtDate(a.checked)}` : "";
+    if (a.posting === "Closed") { node("span", { class: "pill crit", title: (a.posting_note || "Taken down by the company") + checked }, host, "Job closed"); return; }
+    const open = a.posting === "Open" ? `Still open on the company's job board${checked}` : a.posting === "Unknown" ? `Couldn't check${checked}: ${a.posting_note}` : "Not checked yet";
+    if (a.age !== null && a.age !== undefined) {
+      const txt = a.fresh === "old" ? `Old: ${a.age}d` : a.age === 0 ? "Posted today" : `Posted ${a.age}d ago`;
+      const cls = a.fresh === "fresh" ? "pill good" : a.fresh === "old" ? "pill warn" : "pill";
+      node("span", { class: cls, title: `${open}.${a.fresh === "old" ? ` Over ${D.stale_days} days old: may be filled, or an evergreen posting.` : ""}` }, host, txt);
+    }
+    if (a.posting_note && /^apply by/i.test(a.posting_note))
+      node("span", { class: "pill warn", title: "The company's application deadline" }, host, a.posting_note.replace(/^apply/i, "Apply"));
+  }
   function card(col, a, label) {
     const c = node("div", { class: "card-app" }, col);
     node("div", { class: "co" }, c, a.company);
@@ -582,6 +602,7 @@
     const when = a.changed || a.applied;
     if (when) node("span", {}, m, fmtDate(when));
     if (followUp(a)) node("span", { class: "pill warn" }, m, "Follow up");
+    if (!isSent(a)) agePill(m, a);
     if (a.flag === 9) node("span", { class: "pill crit", title: "Weak match on the job's must-haves" }, m, "Not recommended");
     if (a.size && a.size !== "size unknown") node("span", { class: a.size === "500-1,000" ? "pill active" : "pill",
       title: a.employees ? `About ${a.employees.toLocaleString("en-IN")} employees (rough public estimate)` : "" },
@@ -630,6 +651,30 @@
     }
   }
 
+  // ---------- "are these jobs still open?" (server mode) ----------
+  let vfTimer = null, vfWatching = false;
+  async function startVerify() {
+    try { await post("/api/verify", {}); vfWatching = true; pollVerify(); }
+    catch (e) { boardNote(`Couldn't start the check: ${e.message}`, true); }
+  }
+  async function pollVerify() {
+    clearTimeout(vfTimer);
+    let j;
+    try { j = await (await fetch("/api/verify", { cache: "no-store" })).json(); } catch (e) { return; }
+    const btn = document.getElementById("vf-btn");
+    btn.disabled = j.state === "running";
+    if (j.state === "running") {
+      vfWatching = true;
+      boardNote(`Checking jobs are still open on each company's board: ${j.done} of ${j.total}…`);
+      vfTimer = setTimeout(pollVerify, 2000);
+    } else if (vfWatching) {
+      vfWatching = false;
+      await reload();
+      boardNote(j.state === "error" ? `The check stopped: ${j.message}` : `Checked: ${j.message}`, j.state === "error");
+    }
+  }
+  document.getElementById("vf-btn").addEventListener("click", startVerify);
+
   // ---------- autofill (server mode) ----------
   async function startAutofill(body) {
     afStatus({ state: "starting", message: "Opening the browser…", ids: body.ids || [] });
@@ -667,8 +712,8 @@
   }
   document.getElementById("af-all").addEventListener("click", () => {
     const n = +document.getElementById("af-n").value;
-    const top = apps().filter(a => ["Lead", "Tailored"].includes(a.status) && a.flag !== 9 && AUTO_OK(a.url))
-      .sort((x, y) => ((x.flag || 0) - (y.flag || 0)) || (y.fit ?? 0) - (x.fit ?? 0)).slice(0, n);
+    const top = apps().filter(a => ["Lead", "Tailored"].includes(a.status) && a.flag !== 9 && a.fresh !== "old" && a.posting !== "Closed" && AUTO_OK(a.url))
+      .sort((x, y) => ((x.rank ?? 0) - (y.rank ?? 0)) || (y.fit ?? 0) - (x.fit ?? 0)).slice(0, n);
     if (!top.length) { afStatus({ state: "error", message: "No ready jobs with a company apply link. LinkedIn and Naukri jobs are applied to by hand." }); return; }
     const names = top.map(a => `${a.id} ${a.company}`).join("\n");
     if (confirm(`Open these ${top.length} applications and fill them in?\n\n${names}\n\nYou check every form and click Submit yourself.`))
@@ -699,6 +744,7 @@
       boardNote("Moves save to tracker.xlsx.");
       render();
       pollAutofill();
+      pollVerify();
       return;
     }
     if (typeof window.claude?.use !== "function") {
@@ -735,6 +781,10 @@
   document.getElementById("f-track").addEventListener("change", e => { state.track = e.target.value; render(); });
   document.getElementById("f-period").addEventListener("change", e => { state.period = e.target.value; render(); });
   document.getElementById("f-size").addEventListener("change", e => { state.size = e.target.value; render(); });
+  const fAge = document.getElementById("f-age");
+  fAge.options[0].textContent = `Hide old jobs (${D.stale_days}+ days)`;
+  fAge.options[1].textContent = `Fresh jobs only (≤ ${D.fresh_days} days)`;
+  fAge.addEventListener("change", e => { state.age = e.target.value; render(); });
   document.getElementById("f-q").addEventListener("input", e => { state.q = e.target.value.trim().toLowerCase(); render(); });
   document.querySelectorAll("[data-scope]").forEach(b => b.addEventListener("click", () => {
     state.scope = b.dataset.scope;

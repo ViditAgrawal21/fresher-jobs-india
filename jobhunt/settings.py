@@ -34,6 +34,11 @@ class JobhuntSettings(BaseSettings):
 
     followup_after_days: int = 7
 
+    # Freshness caps, in days since the company first published a job. `discover` keeps jobs up to
+    # FRESH_JOB_DAYS old; jobs older than STALE_JOB_DAYS are marked old and skipped by autofill.
+    fresh_job_days: int = 30
+    stale_job_days: int = 60
+
     @property
     def gmail_login(self) -> tuple[str, str]:
         """(address, app password): the address defaults to CANDIDATE_EMAIL; spaces in the password are ignored."""

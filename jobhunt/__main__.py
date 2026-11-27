@@ -8,7 +8,8 @@
   list         show tracked applications
   followups    applications with no reply after N days, with a follow-up draft
   sync-mail    read Gmail and update replies / statuses
-  discover     find matching openings on company job boards (and Adzuna)
+  discover     find matching openings on company job boards (and Adzuna), posted in the last 30 days
+  verify       check Ready jobs are still open on the company's board, and how old they are
   dashboard    build the HTML dashboard: funnel, weekly targets, skills in demand, every resume
   serve        the dashboard on http://127.0.0.1:8765: board moves save to the tracker, autofill buttons
   autofill     fill application forms in a browser window for you to check and submit
@@ -257,14 +258,36 @@ def cmd_discover(args, s) -> None:
         for e in errors:
             print(f"  warning: {e}")
         save_cache(posts, cache)
+    max_age = s.fresh_job_days if args.max_age_days is None else args.max_age_days
     rows = discover(profile, posts, s.data_dir / "leads", max_years=args.max_years, min_score=args.min_score,
-                    title_filter=args.title, min_employees=args.min_employees, max_employees=args.max_employees)
+                    title_filter=args.title, min_employees=args.min_employees, max_employees=args.max_employees,
+                    max_age_days=max_age)
     t = Tracker(s.tracker_path)
     added = t.add_leads(rows[: args.limit])
     t.save()
-    print(f"{len(posts)} posts fetched, {len(rows)} match, {added} new added to the Leads sheet.")
+    print(f"{len(posts)} posts fetched, {len(rows)} match (posted in the last {max_age} days, by the employer), "
+          f"{added} new added to the Leads sheet.")
     for r in rows[:10]:
-        print(f"  {r['score']:3}  {r['company']} / {r['title']}  ({r['exp'] or 'exp not stated'})")
+        age = f"posted {(date.today() - r['posted']).days}d ago" if r["posted"] else "date not given"
+        print(f"  {r['score']:3}  {r['company']} / {r['title']}  ({r['exp'] or 'exp not stated'}; {age})")
+
+
+def cmd_verify(args, s) -> None:
+    from jobhunt import verify
+
+    today = date.today()
+    print("Checking each job on the company's own job board...")
+    results = verify.verify_applications(
+        s, [i.upper() for i in args.ids] or None, today=today,
+        progress=lambda n, total, company: print(f"  {n}/{total} {company}", end="\r", flush=True))
+    print(" " * 60, end="\r")
+    for r in results:
+        c = r.check
+        fresh = verify.freshness(c.posted, today, s.fresh_job_days, s.stale_job_days)
+        age = f"posted {(today - c.posted).days}d ago ({fresh})" if c.posted else "post date unknown"
+        tail = "  -> moved to Withdrawn" if r.withdrawn else ""
+        print(f"  {r.id}  {c.state:<7} {r.company[:18]:<18} {age:<28} {c.detail}{tail}")
+    print(verify.summary(results, today, s.fresh_job_days, s.stale_job_days))
 
 
 def cmd_import_status(args, s) -> None:
@@ -383,6 +406,10 @@ def main(argv: list[str] | None = None) -> None:
     a.add_argument("--min-employees", type=int, default=0, help="keep companies with at least this many employees (approx)")
     a.add_argument("--max-employees", type=int, default=0, help="keep companies with at most this many employees (approx)")
     a.add_argument("--cached", action="store_true", help="re-score the last fetch (under 12 hours old) instead of refetching")
+    a.add_argument("--max-age-days", type=int, help="skip jobs published longer ago than this (default FRESH_JOB_DAYS, 30)")
+
+    a = sub.add_parser("verify", help="check jobs are still open on the company's board, and how old they are")
+    a.add_argument("ids", nargs="*", help="application IDs (default: every Ready to apply job)")
 
     a = sub.add_parser("import-status", help="apply status changes saved on the hosted dashboard (JSON file)")
     a.add_argument("file")
@@ -405,7 +432,7 @@ def main(argv: list[str] | None = None) -> None:
     s = get_settings()
     {"init": cmd_init, "resume": cmd_resume, "apply": cmd_apply, "applied": cmd_applied, "status": cmd_status,
      "list": cmd_list, "followups": cmd_followups, "sync-mail": cmd_sync_mail, "discover": cmd_discover,
-     "dashboard": cmd_dashboard, "import-status": cmd_import_status, "serve": cmd_serve,
+     "dashboard": cmd_dashboard, "import-status": cmd_import_status, "serve": cmd_serve, "verify": cmd_verify,
      "autofill": cmd_autofill}[args.cmd](args, s)
 
 

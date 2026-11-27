@@ -3,8 +3,10 @@
 Unlike the static dashboard.html, this page:
 - saves every board move straight into tracker.xlsx;
 - opens each tailored resume, report and job description;
+- checks every Ready job is still open on the company's own job board (on start, once a
+  day, and from the "Check jobs are still open" button), and skips closed jobs;
 - runs autofill, either for one job (the Autofill button on a Ready card) or for the top N
-  ready jobs. A browser window opens with one tab per job and the form filled in. You check
+  fresh ready jobs. A browser window opens with one tab per job and the form filled in. You check
   each form and click Submit yourself; a thank-you page marks the job Submitted.
 
 The server listens on 127.0.0.1 only and refuses requests from other sites, so nothing on
@@ -16,13 +18,13 @@ from __future__ import annotations
 import logging
 import socket
 import threading
-from pathlib import Path
+from datetime import date
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
-from jobhunt import autofill
+from jobhunt import autofill, verify
 from jobhunt.dashboard import build_data, render
 from jobhunt.settings import JobhuntSettings
 from jobhunt.tracker import Tracker
@@ -46,12 +48,15 @@ class AutofillRequest(BaseModel):
     limit: int = Field(5, ge=1, le=10)
 
 
-def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PORT) -> FastAPI:
-    """`runner` replaces autofill.run in tests."""
+def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PORT, checker=None,
+               check_on_start: bool = False) -> FastAPI:
+    """`runner` replaces autofill.run and `checker` verify.verify_applications in tests."""
     app = FastAPI(title="jobhunt", docs_url=None, redoc_url=None, openapi_url=None)
     lock = threading.Lock()  # one reader/writer of tracker.xlsx at a time
     job: dict = {"session": None, "thread": None}
     runner = runner or autofill.run
+    checker = checker or verify.verify_applications
+    vjob = {"job": verify.VerifyJob(), "thread": None}
     files_root = (settings.data_dir / "applications").resolve()
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}", "testserver"}
 
@@ -99,6 +104,42 @@ def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PO
                     raise HTTPException(423, str(exc)) from exc
         return {"ok": True, "changed": changed}
 
+    def start_check() -> verify.VerifyJob:
+        if vjob["thread"] is not None and vjob["thread"].is_alive():
+            return vjob["job"]
+        job_ = verify.VerifyJob(state="running")
+
+        def progress(n, total, company):
+            job_.done, job_.total = n - 1, total
+
+        def work():
+            try:
+                results = checker(settings, lock=lock, progress=progress)
+                job_.done = job_.total = len(results)
+                job_.closed = [r.id for r in results if r.withdrawn]
+                job_.message = verify.summary(results, date.today(), settings.fresh_job_days, settings.stale_job_days)
+                if job_.closed:
+                    job_.message += f" Moved to Withdrawn: {', '.join(job_.closed)}."
+                job_.state = "done"
+            except Exception as exc:  # offline, or the tracker is open in Excel
+                job_.state, job_.message = "error", str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+                log.warning("posting check failed: %s", exc)
+
+        vjob.update(job=job_, thread=threading.Thread(target=work, daemon=True, name="verify"))
+        vjob["thread"].start()
+        return job_
+
+    @app.get("/api/verify")
+    def verify_status():
+        return vjob["job"].status()
+
+    @app.post("/api/verify")
+    def verify_start():
+        return start_check().status()
+
+    if check_on_start and _needs_check(settings):
+        start_check()
+
     @app.get("/api/autofill")
     def autofill_status():
         s = job["session"]
@@ -118,6 +159,7 @@ def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PO
             raise HTTPException(400, "Nothing to autofill: these jobs have no company apply link "
                                      "(LinkedIn and Naukri jobs are applied to by hand).")
         session = autofill.Session(ids=[j["id"] for j in jobs])
+        session.message = "Checking these jobs are still open…"
 
         def submitted(app_id: str) -> None:
             try:
@@ -125,8 +167,25 @@ def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PO
             except RuntimeError as exc:
                 session.message = f"{app_id} was submitted but not saved: {exc}"
 
-        thread = threading.Thread(target=runner, args=(settings, session.ids, session),
-                                  kwargs={"on_submitted": submitted, "lock": lock}, daemon=True, name="autofill")
+        def work() -> None:
+            # A job can close between the daily check and now: ask its board once more first.
+            try:
+                results = checker(settings, session.ids, lock=lock)
+                closed = [r.id for r in results if r.check.state == "Closed"]
+            except Exception as exc:
+                log.warning("pre-autofill check failed: %s", exc)
+                closed = []
+            if closed:
+                session.ids = [i for i in session.ids if i not in closed]
+            if not session.ids:
+                session.state = "done"
+                session.message = f"Not opened: {', '.join(closed)} closed on the company's job board (moved to Withdrawn)."
+                return
+            runner(settings, session.ids, session, on_submitted=submitted, lock=lock)
+            if closed:
+                session.message += f" Skipped {', '.join(closed)}: the job closed."
+
+        thread = threading.Thread(target=work, daemon=True, name="autofill")
         job.update(session=session, thread=thread)
         thread.start()
         return session.status()
@@ -140,6 +199,20 @@ def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PO
                             content_disposition_type="inline", headers={"Cache-Control": "no-store"})
 
     return app
+
+
+def _needs_check(settings: JobhuntSettings) -> bool:
+    """True when a Ready job hasn't been checked today."""
+    try:
+        today = date.today()
+        for a in Tracker(settings.tracker_path).applications():
+            if a["status"] in verify.READY:
+                checked = a["checked"].date() if hasattr(a["checked"], "date") else a["checked"]
+                if checked != today:
+                    return True
+    except Exception as exc:
+        log.warning("couldn't read the tracker: %s", exc)
+    return False
 
 
 def _free_port(start: int) -> int:
@@ -166,4 +239,4 @@ def serve(settings: JobhuntSettings, port: int = DEFAULT_PORT, open_browser: boo
     print(f"Dashboard: {url}\nKeep this window open while you use it. Ctrl+C stops it.")
     if open_browser:
         threading.Timer(1.0, webbrowser.open, args=(url,)).start()
-    uvicorn.run(create_app(settings, port=port), host="127.0.0.1", port=port, log_level="warning")
+    uvicorn.run(create_app(settings, port=port, check_on_start=True), host="127.0.0.1", port=port, log_level="warning")

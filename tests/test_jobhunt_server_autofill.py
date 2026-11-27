@@ -147,12 +147,16 @@ def settings(tmp_path: Path) -> JobhuntSettings:
     return s
 
 
-def _client(settings, runner=None):
+def _no_check(settings, ids=None, **kw):
+    return []  # no network in tests
+
+
+def _client(settings, runner=None, checker=_no_check):
     from fastapi.testclient import TestClient
 
     from jobhunt.server import create_app
 
-    return TestClient(create_app(settings, runner=runner))
+    return TestClient(create_app(settings, runner=runner, checker=checker))
 
 
 def test_server_page_data_and_files(settings):
@@ -233,3 +237,40 @@ def test_first_answers_file_comes_from_the_profile_and_leaves_salary_blank(tmp_p
     assert answers["first_name"] and answers["school"] and answers["education_end_year"].isdigit()
     assert answers["current_ctc_lpa"] == answers["expected_ctc_lpa"] == ""
     assert answers["email"] == "me@example.com" and answers["phone"] == "+91 90000 00000"
+
+
+def test_server_skips_jobs_that_closed_before_autofill(settings):
+    from jobhunt import verify
+
+    def checker(s, ids=None, *, lock=None, **kw):
+        res = verify.Result("A001", "Acme", "Backend Engineer", verify.Check("Closed", detail="taken down"), withdrawn=True)
+        return [res]
+
+    opened = []
+    c = _client(settings, runner=lambda *a, **kw: opened.append(a[1]), checker=checker)
+    assert c.post("/api/autofill", json={"ids": ["A001"]}).status_code == 200
+    for _ in range(50):
+        if c.get("/api/autofill").json()["state"] == "done":
+            break
+        threading.Event().wait(0.1)
+    assert opened == [] and "closed" in c.get("/api/autofill").json()["message"]
+
+
+def test_server_runs_the_posting_check(settings):
+    from jobhunt import verify
+
+    seen = []
+
+    def checker(s, ids=None, *, lock=None, progress=None, **kw):
+        seen.append(ids)
+        progress(1, 1, "Acme")
+        return [verify.Result("A001", "Acme", "Backend Engineer", verify.Check("Open", None))]
+
+    c = _client(settings, checker=checker)
+    assert c.post("/api/verify", json={}).status_code == 200
+    for _ in range(50):
+        if c.get("/api/verify").json()["state"] == "done":
+            break
+        threading.Event().wait(0.1)
+    j = c.get("/api/verify").json()
+    assert seen == [None] and j["state"] == "done" and "1 still open" in j["message"]

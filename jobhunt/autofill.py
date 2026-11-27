@@ -453,8 +453,10 @@ def ready_ids(settings: JobhuntSettings, limit: int = 5) -> list[str]:
     from jobhunt.dashboard import build_data
 
     data = build_data(settings)
-    ready = [a for a in data["apps"] if a["status"] in ("Lead", "Tailored") and a["flag"] < 9 and autofillable(a["url"])]
-    ready.sort(key=lambda a: (a["flag"], -(a["fit"] or 0)))
+    # Not advised against, not closed, not older than STALE_JOB_DAYS: fresh jobs first.
+    ready = [a for a in data["apps"] if a["status"] in ("Lead", "Tailored") and a["flag"] < 9 and a["fresh"] != "old"
+             and a["posting"] != "Closed" and autofillable(a["url"])]
+    ready.sort(key=lambda a: (a["rank"], -(a["fit"] or 0)))
     return [a["id"] for a in ready[:limit]]
 
 

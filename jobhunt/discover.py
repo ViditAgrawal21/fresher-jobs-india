@@ -3,7 +3,9 @@
 Company ATS boards (Greenhouse, Lever, Ashby, SmartRecruiters; no key needed) plus Adzuna
 when ADZUNA_APP_ID/KEY are set, with experienced-role queries instead of fresher ones.
 Each post is filtered (software role, not senior, not a fresher/intern post, at most
-`max_years` required) and scored by keyword coverage against the profile. Results go to
+`max_years` required, published in the last `max_age_days`, posted by the employer itself
+rather than a recruiter, and free of scam signs) and scored by keyword coverage against
+the profile. Results go to
 the Leads sheet, best first, and each description is saved so `apply --lead` works offline.
 """
 
@@ -68,6 +70,30 @@ def size_band(employees: int | None) -> tuple[int, str]:
         return 2, "large"
     return 3, "small"
 
+# Authenticity. Company job boards are the employer's own system; aggregator listings (Adzuna)
+# also carry recruiters, staffing firms and the odd scam, so those are dropped.
+_RECRUITER = re.compile(
+    r"recruit|staffing|placement|manpower|consultan|outsourc|hr services|talent (?:solutions|acquisition|hub)"
+    r"|hiring (?:partner|agency)|job ?(?:portal|board)|careers? (?:hub|point)|^(?:confidential|unknown|n/?a|private)$",
+    re.I,
+)
+_SCAM = re.compile(
+    r"registration fee|security deposit|(?:pay|deposit) (?:a |the |an )?(?:fee|amount)|processing fee|training fee"
+    r"|refundable|(?:whatsapp|telegram) (?:your )?(?:cv|resume)|earn (?:rs\.?|₹|\$|inr) ?\d[\d,]* (?:per|a|/) ?(?:day|week)"
+    r"|no interview",
+    re.I,
+)
+_EMPLOYER_SOURCES = {"greenhouse", "lever", "ashby", "smartrecruiters"}
+
+
+def looks_authentic(post, desc: str) -> bool:
+    """Posted by the employer itself, with no recruiter or scam signs."""
+    company = (post.company or "").strip()
+    if not company or _RECRUITER.search(company):
+        return False
+    return not _SCAM.search(desc)
+
+
 _SOFTWARE_TITLE = re.compile(
     r"engineer|developer|\bsde\b|programmer|full[ -]?stack|back[ -]?end|front[ -]?end|mobile|software|\bai\b|\bllm\b|genai",
     re.I,
@@ -85,7 +111,8 @@ _SKIP_TITLE = re.compile(
 
 
 def score_post(profile: Profile, post, *, max_years: int = 4, title_filter: str | None = None,
-               min_employees: int = 0, max_employees: int = 0) -> dict | None:
+               min_employees: int = 0, max_employees: int = 0, max_age_days: int = 0,
+               today: date | None = None) -> dict | None:
     """A Leads-sheet row for a post worth looking at, or None."""
     from pipeline.filters import looks_senior
     from pipeline.normalize import clean_title, html_to_text
@@ -100,7 +127,15 @@ def score_post(profile: Profile, post, *, max_years: int = 4, title_filter: str 
         return None
     if max_employees and EMPLOYEES.get(post.company, 10**9) > max_employees:
         return None
+    posted = post.posted_at.date() if post.posted_at else None
+    if max_age_days:
+        if posted and ((today or date.today()) - posted).days > max_age_days:
+            return None  # too old: probably filled, or an evergreen posting
+        if posted is None and post.source not in _EMPLOYER_SOURCES:
+            return None  # an aggregator listing with no date can't be shown to be current
     desc = html_to_text(post.description or "")
+    if not looks_authentic(post, desc):
+        return None
     years = years_required(desc)
     if years is not None and years > max_years:
         return None
@@ -116,7 +151,6 @@ def score_post(profile: Profile, post, *, max_years: int = 4, title_filter: str 
     # Coverage alone overrates vague posts (1 keyword of 1 = 100%), so breadth of the match counts too.
     breadth = 30 * min(len(core), 6) / 6
     score = min(100, round(0.55 * core_pct + breadth + title_bonus))
-    posted = post.posted_at.date() if post.posted_at else None
     return {
         "key": f"{post.source}:{post.source_id}",
         "company": post.company,
@@ -199,17 +233,19 @@ def load_cache(path: Path, max_age_hours: float = 12) -> list | None:
 
 
 def discover(profile: Profile, posts: list, leads_dir: Path, *, max_years: int = 4, min_score: int = 35,
-             title_filter: str | None = None, min_employees: int = 0, max_employees: int = 0) -> list[dict]:
+             title_filter: str | None = None, min_employees: int = 0, max_employees: int = 0,
+             max_age_days: int = 0) -> list[dict]:
     """Score posts, keep the good ones (best first) and save their descriptions for `apply --lead`."""
     rows, seen = [], set()
     for post in posts:
         row = score_post(profile, post, max_years=max_years, title_filter=title_filter, min_employees=min_employees,
-                         max_employees=max_employees)
+                         max_employees=max_employees, max_age_days=max_age_days)
         if row is None or row["score"] < min_score or row["url"] in seen:
             continue
         seen.add(row["url"])
         rows.append(row)
-    rows.sort(key=lambda r: r["score"], reverse=True)
+    # Best match first; among equal scores, the newest posting first.
+    rows.sort(key=lambda r: (r["score"], r["posted"] or date.min), reverse=True)
     leads_dir.mkdir(parents=True, exist_ok=True)
     for row in rows:
         (leads_dir / f"{slug(row['key'], 80)}.txt").write_text(row["description"], encoding="utf-8")

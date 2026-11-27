@@ -20,6 +20,7 @@ from jobhunt.profile import load_profile
 from jobhunt.settings import JobhuntSettings
 from jobhunt.tailor import keyword_coverage
 from jobhunt.tracker import WEEK_TARGETS, Tracker
+from jobhunt.verify import freshness
 
 _env = Environment(loader=FileSystemLoader(Path(__file__).parent / "templates"), autoescape=True)
 
@@ -59,6 +60,16 @@ def build_data(settings: JobhuntSettings, today: date | None = None) -> dict:
     tracker = Tracker(settings.tracker_path)
     data_dir = settings.data_dir
 
+    fresh_days, stale_days = settings.fresh_job_days, settings.stale_job_days
+    lead_posted = {}
+    for r in range(2, tracker.leads.max_row + 1):
+        try:
+            lead = tracker.lead(r)
+        except KeyError:
+            continue
+        if lead["url"] and lead["posted"]:
+            lead_posted[str(lead["url"])] = lead["posted"]
+
     apps = []
     for a in tracker.applications():
         folder = (data_dir / str(a["resume"])).parent if a["resume"] else None
@@ -68,6 +79,12 @@ def build_data(settings: JobhuntSettings, today: date | None = None) -> dict:
             matched, missing, match = cov["matched"], cov["missing"], cov["coverage_pct"]
         else:  # typed by hand or added from an email: use whatever the row has
             matched, missing, match = _split(a["matched"]), _split(a["missing"]), a["match"]
+
+        posted = a["posted"] or lead_posted.get(str(a["url"] or ""))
+        posted = posted.date() if isinstance(posted, datetime) else posted
+        posting = str(a["posting"] or "")
+        fresh = freshness(posted, today, fresh_days, stale_days)
+        size_rank = size_band(EMPLOYEES.get(a["company"]))[0]
 
         def rel(name: str) -> str | None:
             return f"{folder.relative_to(data_dir).as_posix()}/{name}" if folder and (folder / name).exists() else None
@@ -87,7 +104,17 @@ def build_data(settings: JobhuntSettings, today: date | None = None) -> dict:
             "size": size_band(EMPLOYEES.get(a["company"]))[1],
             # Ordering hint for the board: 500-1,000 employees first, then other mid-size, large, small;
             # jobs advised against go last.
-            "flag": 9 if "Not recommended" in str(a["notes"] or "") else size_band(EMPLOYEES.get(a["company"]))[0],
+            "flag": 9 if "Not recommended" in str(a["notes"] or "") else size_rank,
+            # When the company published it, whether `verify` found it still open, and the age bucket.
+            "posted": _iso(posted), "age": (today - posted).days if posted else None, "fresh": fresh,
+            "posting": posting.split(":")[0].strip(), "posting_note": posting.partition(":")[2].strip(),
+            "checked": _iso(a["checked"]),
+            # Ready-to-apply order: fresh jobs first, then aging/undated, then old; inside each,
+            # by company size band; advised-against jobs last.
+            # A job with an application deadline goes first: it won't wait.
+            "rank": 99 if "Not recommended" in str(a["notes"] or "") else
+                    -1 if posting.startswith("Open: apply by") else
+                    {"fresh": 0, "aging": 10, "unknown": 10, "old": 20}[fresh] + size_rank,
             "resume": str(a["resume"]).replace("\\", "/") if a["resume"] and (data_dir / str(a["resume"])).exists() else None,
             "report": rel("report.md"), "jd": rel("job_description.txt"),
         })
@@ -101,12 +128,16 @@ def build_data(settings: JobhuntSettings, today: date | None = None) -> dict:
             continue
         if lead["decision"] in ("Skip", "Applied") or lead["url"] in applied_urls:
             continue  # skipped, or already has a tailored resume in Applications
+        lp = lead["posted"].date() if isinstance(lead["posted"], datetime) else lead["posted"]
+        if lp and (today - lp).days > stale_days:
+            continue  # too old to be worth a tailored resume
         leads.append({
             "row": r, "company": lead["company"], "title": lead["title"] or "", "location": lead["location"] or "",
             "exp": lead["exp"] or "", "score": lead["score"] or 0, "track": lead["track"] or "Other",
             "size": size_band(EMPLOYEES.get(lead["company"]))[1],
             "matched": _split(lead["matched"]), "missing": _split(lead["missing"]), "url": lead["url"] or "",
-            "posted": _iso(lead["posted"]), "found": _iso(lead["found"]), "decision": lead["decision"] or "New",
+            "posted": _iso(lp), "age": (today - lp).days if lp else None, "found": _iso(lead["found"]),
+            "decision": lead["decision"] or "New",
             "has_jd": bool(lead_description(data_dir / "leads", str(lead["key"]))),
         })
     leads.sort(key=lambda x: x["score"], reverse=True)
@@ -118,6 +149,7 @@ def build_data(settings: JobhuntSettings, today: date | None = None) -> dict:
         # Status changes saved from the hosted dashboard after this moment override the tracker's.
         "built_ms": int(datetime.now().timestamp() * 1000),
         "follow_days": settings.followup_after_days,
+        "fresh_days": fresh_days, "stale_days": stale_days,
         "supported": sorted(profile.supported_terms()),
         "domain": sorted(DOMAIN),
         "apps": apps,
@@ -131,7 +163,9 @@ def render(data: dict, artifact: bool = False) -> str:
     for hosts that wrap the page themselves and own the theme (a claude.ai artifact)."""
     # JSON inside <script>: escape "<" so no string in the data can close the tag.
     payload = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")
-    return _env.get_template("dashboard.html.j2").render(data_json=Markup(payload), name=data["name"], artifact=artifact)
+    return _env.get_template("dashboard.html.j2").render(data_json=Markup(payload), name=data["name"], artifact=artifact,
+                                                         fresh_days=data.get("fresh_days", 30),
+                                                         stale_days=data.get("stale_days", 60))
 
 
 def write_dashboard(settings: JobhuntSettings) -> Path:
