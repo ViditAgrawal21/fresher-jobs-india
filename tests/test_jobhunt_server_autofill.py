@@ -201,7 +201,7 @@ def test_server_autofill_runs_and_marks_submissions(settings):
     started, release = threading.Event(), threading.Event()
     calls = []
 
-    def fake_run(s, ids, session, *, on_submitted=None, lock=None):
+    def fake_run(s, ids, session, *, on_submitted=None, lock=None, auto=False):
         calls.append(ids)
         session.state = "running"
         started.set()

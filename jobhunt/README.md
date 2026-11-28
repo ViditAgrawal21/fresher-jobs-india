@@ -10,7 +10,7 @@ A personal job-search toolkit that lives next to the Fresher Jobs India pipeline
 5. **Dashboard** (`python -m jobhunt serve`): a local web page with the funnel, applications per week against your targets, the skills postings ask for (which you have, which are gaps), response rate by match % and by source, and every application with its keyword match and links to its tailored resume, report and job description. Moving a card on the pipeline board saves to `tracker.xlsx`.
 6. **Autofill**: the Autofill button on a Ready card (or "Autofill the top N ready jobs") opens a Chrome window with one tab per application. Each form gets your details from `jobhunt/data/answers.yaml` and that job's tailored resume. Filled fields are outlined green; anything it couldn't answer is outlined orange for you.
 
-You still click Submit yourself, after reading every field. When a "thank you for applying" page appears, the application moves to Submitted in the tracker. LinkedIn and Naukri jobs keep a plain Apply link, because both sites forbid automated applications. A person reading each posting for 30 seconds also catches what no script does.
+With **Submit for me** ticked (next to Start autofill), it submits each form itself once every required question has an answer. It clicks Next through multi-page forms (Oracle, SmartRecruiters) and enters the security code some sites email you, read from your Gmail. Every question a form asks that `answers.yaml` doesn't cover is saved to `jobhunt/data/questions.yaml` with its choices. Answer each one once and every later form that asks it is filled and submitted. A form waits for you, with the reason shown on the dashboard, when it has a CAPTCHA, needs you to sign in or create an account (Workday: do it once in that window), or has a required question you haven't answered yet. Without Submit for me, you read every field and click Submit yourself.
 
 ## One-time setup (Windows, PowerShell)
 
@@ -96,7 +96,7 @@ Without an API key, or with `--offline`, tailoring is keyword-based and free. It
 | `sync-mail [--since DATE] [--dry-run]` | Read Gmail, update replies and statuses, log every match |
 | `discover [--max-years 4] [--min-score 35] [--max-age-days 30]` | Fetch and score fresh openings from employers into the Leads sheet |
 | `serve [--port 8765]` | The dashboard on localhost. Moves save to the tracker, links open each resume and report, and Autofill buttons work |
-| `autofill IDS \| --all-ready [--limit 5]` | Autofill from the terminal: open and fill those forms, then you check and submit each one |
+| `autofill IDS \| --all-ready [--limit 5] [--submit]` | Autofill from the terminal: open and fill those forms, then you check and submit each one |
 | `verify [IDS]` | Ask each company's job board whether Ready jobs are still open and when they were published; closed ones move to Withdrawn |
 | `dashboard [--open]` | Build a static `jobhunt/data/dashboard.html` (read-only) from the tracker and application folders |
 

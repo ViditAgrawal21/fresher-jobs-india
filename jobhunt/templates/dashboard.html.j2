@@ -182,9 +182,13 @@
           <label for="af-n">Autofill the top</label>
           <select id="af-n"><option>3</option><option selected>5</option><option>10</option></select>
           <span>ready jobs</span>
+          <label title="Fill each form and submit it for you once every required question is answered. Forms with a CAPTCHA, a sign-in, or questions it can't answer wait for you.">
+            <input type="checkbox" id="af-submit"> Submit for me</label>
           <button type="button" id="af-all" class="go">Start autofill</button>
           <button type="button" id="vf-btn" title="Ask each company's job board whether the job is still open, and when it was published">Check jobs are still open</button>
+          <button type="button" id="mail-btn" title="Read your Gmail for replies from companies and move those applications forward">Check email for replies</button>
         </div>
+        <div class="board-note" id="mail-note" role="status"></div>
         <div class="board-note" id="board-note" role="status"></div>
       </div>
     </div>
@@ -732,7 +736,8 @@
     if (a.url && /^https?:\/\//.test(a.url)) node("a", { href: a.url, target: "_blank", rel: "noopener" }, acts, ready && !auto ? "Apply" : "Posting");
     if (a.resume) node("a", { href: a.resume, target: "_blank", rel: "noopener" }, acts, "Resume");
     if (auto) {
-      const b = node("button", { type: "button", class: "go", title: "Open the form in a browser window and fill it in. You check it and click Submit." }, acts, "Autofill");
+      const b = node("button", { type: "button", class: "go", title: subBox.checked ? "Fill the form and submit it for you once every required question is answered"
+        : "Open the form in a browser window and fill it in. You check it and click Submit." }, acts, subBox.checked ? "Auto-apply" : "Autofill");
       b.disabled = afBusy;
       b.addEventListener("click", () => startAutofill({ ids: [a.id] }));
     }
@@ -795,8 +800,30 @@
   }
   document.getElementById("vf-btn").addEventListener("click", startVerify);
 
+  // ---------- replies from companies (server mode) ----------
+  let mailTimer = null, mailWatching = false;
+  async function pollMail() {
+    clearTimeout(mailTimer);
+    let j;
+    try { j = await (await fetch("/api/sync-mail", { cache: "no-store" })).json(); } catch (e) { return; }
+    const note = document.getElementById("mail-note"), btn = document.getElementById("mail-btn");
+    btn.disabled = j.state === "running";
+    note.className = "board-note" + (j.state === "error" ? " err" : "");
+    note.textContent = j.state === "idle" ? (j.configured ? "" : "Email tracking is off: add GMAIL_APP_PASSWORD to .env.") : j.message;
+    if (j.state === "running") { mailWatching = true; mailTimer = setTimeout(pollMail, 3000); }
+    else if (mailWatching) { mailWatching = false; if (j.changes || j.added) reload(); }
+  }
+  document.getElementById("mail-btn").addEventListener("click", async () => {
+    try { await post("/api/sync-mail", {}); mailWatching = true; pollMail(); }
+    catch (e) { const n = document.getElementById("mail-note"); n.className = "board-note err"; n.textContent = e.message; }
+  });
+
   // ---------- autofill (server mode) ----------
+  const subBox = document.getElementById("af-submit");
+  try { subBox.checked = localStorage.getItem("jh-autosubmit") === "1"; } catch (e) {}
+  subBox.addEventListener("change", () => { try { localStorage.setItem("jh-autosubmit", subBox.checked ? "1" : "0"); } catch (e) {} board(apps()); });
   async function startAutofill(body) {
+    body = { ...body, submit: subBox.checked };
     afStatus({ state: "starting", message: "Opening the browser…", ids: body.ids || [] });
     try {
       const j = await post("/api/autofill", body);
@@ -825,10 +852,14 @@
     if (!(j.ids || []).length) return;
     const ul = node("ul", {}, n);
     for (const id of j.ids) {
-      const a = D.apps.find(x => x.id === id), got = (j.filled || {})[id] || 0;
-      const where = (j.submitted || []).includes(id) ? "submitted, marked in the tracker" : got ? `${got} field${got === 1 ? "" : "s"} filled, waiting for you` : "opening";
-      node("li", {}, ul, `${id} ${a ? `${a.company}, ${a.role}` : ""}: ${where}`);
+      const a = D.apps.find(x => x.id === id), got = (j.filled || {})[id] || 0, js = (j.jobs || {})[id];
+      let where = (j.submitted || []).includes(id) ? "submitted, marked in the tracker"
+        : js && js.note ? js.note : got ? `${got} field${got === 1 ? "" : "s"} filled` : "opening";
+      const li = node("li", { class: js && js.state === "needs_you" ? "err" : "" }, ul, `${id} ${a ? `${a.company}, ${a.role}` : ""}: ${where}`);
+      if (js && js.missing && js.missing.length) node("div", {}, li, "Unanswered: " + js.missing.join("; "));
     }
+    if (j.questions_waiting) node("div", { style: "margin-top:6px" }, n,
+      `${j.questions_waiting} question(s) are waiting for your answer in jobhunt/data/questions.yaml: answer them once and future forms are submitted for you.`);
   }
   document.getElementById("af-all").addEventListener("click", () => {
     const n = +document.getElementById("af-n").value;
@@ -836,7 +867,9 @@
       .sort((x, y) => ((x.rank ?? 0) - (y.rank ?? 0)) || (y.fit ?? 0) - (x.fit ?? 0)).slice(0, n);
     if (!top.length) { afStatus({ state: "error", message: "No ready jobs with a company apply link. LinkedIn and Naukri jobs are applied to by hand." }); return; }
     const names = top.map(a => `${a.id} ${a.company}`).join("\n");
-    if (confirm(`Open these ${top.length} applications and fill them in?\n\n${names}\n\nYou check every form and click Submit yourself.`))
+    const how = subBox.checked ? "Each form is submitted for you once every required question is answered; the rest wait for you."
+                               : "You check every form and click Submit yourself.";
+    if (confirm(`Open these ${top.length} applications and fill them in?\n\n${names}\n\n${how}`))
       startAutofill({ ids: top.map(a => a.id) });
   });
 
@@ -869,6 +902,7 @@
       pollAutofill();
       pollVerify();
       pollTasks();
+      pollMail();
       return;
     }
     if (typeof window.claude?.use !== "function") {

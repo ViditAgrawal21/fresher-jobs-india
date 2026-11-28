@@ -81,10 +81,11 @@ class AutofillRequest(BaseModel):
     ids: list[str] = Field(default_factory=list, max_length=10)
     all_ready: bool = False
     limit: int = Field(5, ge=1, le=10)
+    submit: bool = False  # submit each form for you once every required question is answered
 
 
 def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PORT, checker=None,
-               check_on_start: bool = False, finder=None, tailorer=None) -> FastAPI:
+               check_on_start: bool = False, finder=None, tailorer=None, mailer=None) -> FastAPI:
     """`runner`, `checker`, `finder` and `tailorer` replace autofill.run, verify.verify_applications,
     discover.run_discover and tailor_job in tests."""
     app = FastAPI(title="jobhunt", docs_url=None, redoc_url=None, openapi_url=None)
@@ -93,6 +94,7 @@ def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PO
     runner = runner or autofill.run
     checker = checker or verify.verify_applications
     vjob = {"job": verify.VerifyJob(), "thread": None}
+    mail = {"state": "idle", "message": "", "changes": 0, "added": 0, "thread": None}
     tasks: list[Task] = []
     work: queue.Queue = queue.Queue()  # tailoring runs one at a time, in the order you click
     worker: dict = {"thread": None}
@@ -183,8 +185,51 @@ def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PO
     def verify_start():
         return start_check().status()
 
+    # ---------- replies from companies (Gmail) ----------
+    def mail_default():
+        from jobhunt.mailsync import run_sync
+        return run_sync(settings, lock=lock)
+
+    mailer_fn = mailer or mail_default
+
+    def start_mail() -> dict:
+        if mail["thread"] is not None and mail["thread"].is_alive():
+            return mail_status()
+
+        def work():
+            mail.update(state="running", message="Reading your Gmail for replies…")
+            try:
+                out = mailer_fn()
+                rep_ = out["report"]
+                mail.update(state="done", changes=len(rep_.changes), added=len(rep_.added),
+                            message=(f"Read {len(out['mails'])} new emails: {len(rep_.changes)} matched your applications"
+                                     + (f", {len(rep_.added)} new applications found in confirmation emails" if rep_.added else "")
+                                     + "."))
+            except Exception as exc:  # wrong App Password, IMAP off, offline: say which
+                mail.update(state="error", message=str(exc).splitlines()[0] if str(exc) else type(exc).__name__)
+
+        mail["thread"] = threading.Thread(target=work, daemon=True, name="mail")
+        mail["thread"].start()
+        return mail_status()
+
+    def mail_status() -> dict:
+        return {k: mail[k] for k in ("state", "message", "changes", "added")} | {"configured": all(settings.gmail_login)}
+
+    @app.get("/api/sync-mail")
+    def sync_mail_status():
+        return mail_status()
+
+    @app.post("/api/sync-mail")
+    def sync_mail_start():
+        if not all(settings.gmail_login):
+            raise HTTPException(400, "Add GMAIL_APP_PASSWORD (a 16-letter Google App Password) and CANDIDATE_EMAIL to .env, "
+                                     "then restart the dashboard.")
+        return start_mail()
+
     if check_on_start and _needs_check(settings):
         start_check()
+    if check_on_start and all(settings.gmail_login):
+        start_mail()
 
     # ---------- find more jobs / tailor a resume ----------
     def new_task(kind: str, label: str) -> Task:
@@ -304,7 +349,7 @@ def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PO
         if not jobs:
             raise HTTPException(400, "Nothing to autofill: these jobs have no company apply link "
                                      "(LinkedIn and Naukri jobs are applied to by hand).")
-        session = autofill.Session(ids=[j["id"] for j in jobs])
+        session = autofill.Session(ids=[j["id"] for j in jobs], auto=req.submit)
         session.message = "Checking these jobs are still open…"
 
         def submitted(app_id: str) -> None:
@@ -327,7 +372,7 @@ def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PO
                 session.state = "done"
                 session.message = f"Not opened: {', '.join(closed)} closed on the company's job board (moved to Withdrawn)."
                 return
-            runner(settings, session.ids, session, on_submitted=submitted, lock=lock)
+            runner(settings, session.ids, session, on_submitted=submitted, lock=lock, auto=req.submit)
             if closed:
                 session.message += f" Skipped {', '.join(closed)}: the job closed."
 

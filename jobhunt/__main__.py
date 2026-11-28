@@ -206,20 +206,13 @@ def cmd_followups(args, s) -> None:
 def cmd_sync_mail(args, s) -> None:
     from jobhunt import mailsync
 
-    address, password = s.gmail_login
-    if not (address and password):
-        _fail("set GMAIL_APP_PASSWORD (and GMAIL_ADDRESS or CANDIDATE_EMAIL) in .env: an App Password, not your Google password")
-    t = Tracker(s.tracker_path)
-    state_path = s.data_dir / "mail_state.json"
-    state = mailsync.load_state(state_path)
-    since = _date(args.since) or mailsync.default_since(state, t)
-    print(f"Reading {address} since {since:%d %b %Y}...")
+    address, _ = s.gmail_login
+    print(f"Reading {address or 'your Gmail'}...")
     try:
-        mails = mailsync.fetch_gmail(address, password, since, s.imap_host,
-                                     skip_ids=set(state["processed"]))
-    except Exception as exc:
-        _fail(f"IMAP failed: {exc}. Check the App Password and that IMAP is enabled in Gmail settings.")
-    report = mailsync.process(t, mails, my_address=address, dry_run=args.dry_run, auto_add=not args.no_add)
+        out = mailsync.run_sync(s, since=_date(args.since), dry_run=args.dry_run, auto_add=not args.no_add)
+    except RuntimeError as exc:
+        _fail(str(exc))
+    report, mails = out["report"], out["mails"]
     for mail, new in report.added:
         print(f"  + new application from email: {new['company']} / {new['role']} ({new['source']})")
     for c in report.changes:
@@ -233,12 +226,8 @@ def cmd_sync_mail(args, s) -> None:
     if args.dry_run:
         print(f"Dry run: {len(report.changes)} change(s) not written.")
         return
-    t.save()
-    state["last_sync"] = date.today().isoformat()
-    state["processed"] += [m.message_id for m in mails if m.message_id]
-    mailsync.save_state(state_path, state)
-    print(f"Done: {len(mails)} emails read, {len(report.changes)} matched to applications, {len(report.added)} added, "
-          f"{len(report.conflicts)} conflict(s) to check by hand.")
+    print(f"Done: {len(mails)} emails since {out['since']:%d %b} read, {len(report.changes)} matched to applications, "
+          f"{len(report.added)} added, {len(report.conflicts)} conflict(s) to check by hand.")
 
 
 def cmd_discover(args, s) -> None:
@@ -330,9 +319,12 @@ def cmd_autofill(args, s) -> None:
     skipped = sorted(set(ids) - {j["id"] for j in jobs})
     print("Opening: " + ", ".join(f"{j['id']} {j['company']}" for j in jobs)
           + (f"\nSkipped (no company apply link, or LinkedIn/Naukri): {', '.join(skipped)}" if skipped else ""))
-    print("Check every field, fill the orange ones, then click Submit yourself. Close the window when done.")
-    session = autofill.run(s, [j["id"] for j in jobs], headless=args.headless, minutes=args.minutes,
+    print("Each form is submitted for you once every required question is answered; the rest wait for you."
+          if args.submit else "Check every field, fill the orange ones, then click Submit yourself. Close the window when done.")
+    session = autofill.run(s, [j["id"] for j in jobs], headless=args.headless, minutes=args.minutes, auto=args.submit,
                            on_submitted=lambda app_id: autofill.mark_submitted(s, app_id))
+    for app_id, st in session.jobs.items():
+        print(f"  {app_id}: {st['note']}" + (f" Unanswered: {'; '.join(st['missing'])}" if st.get("missing") else ""))
     print(session.message)
 
 
@@ -347,11 +339,24 @@ def cmd_export_bundle(args, s) -> None:
 
 
 def cmd_import_bundle(args, s) -> None:
-    from jobhunt.bundle import import_bundle
+    from jobhunt.bundle import find_bundles, import_bundle
 
+    path = Path(args.file) if args.file else None
+    if path is None or not path.exists():
+        found = find_bundles([path.parent] if path is not None else None)
+        if path is not None:
+            # Browsers rename repeat downloads ("pune-picks (1).zip"): take the newest with the same start.
+            same = [f for f in found if f.name.lower().startswith(path.stem.lower())]
+            found = same or found
+            print(f"{path} doesn't exist.")
+        if not found:
+            _fail("no bundle found in Downloads, Desktop, Documents or this folder. Click the zip's card in the "
+                  "Claude chat and choose Download (or save it), then run this again, or give its full path.")
+        path = found[0]
+        print(f"Using {path}")
     try:
-        out = import_bundle(s, Path(args.file))
-    except (ValueError, KeyError, RuntimeError) as exc:
+        out = import_bundle(s, path)
+    except (ValueError, KeyError, RuntimeError, FileNotFoundError, OSError) as exc:
         _fail(str(exc))
     for old, new, company, role in out["added"]:
         print(f"  + {new}  {company} / {role}  (was {old})")
@@ -440,7 +445,7 @@ def main(argv: list[str] | None = None) -> None:
     a.add_argument("--out", required=True)
 
     a = sub.add_parser("import-bundle", help="add the applications and job matches in a bundle zip to your tracker")
-    a.add_argument("file")
+    a.add_argument("file", nargs="?", help="the zip (or unzipped folder); default: the newest one in Downloads etc.")
 
     a = sub.add_parser("serve", help="run the dashboard on localhost, with saving and autofill")
     a.add_argument("--port", type=int, default=8765)
@@ -451,6 +456,8 @@ def main(argv: list[str] | None = None) -> None:
     a.add_argument("--all-ready", action="store_true", help="the best ready-to-apply jobs (see --limit)")
     a.add_argument("--limit", type=int, default=5)
     a.add_argument("--minutes", type=int, default=45, help="close the browser after this long")
+    a.add_argument("--submit", action="store_true",
+                   help="submit each form for you once every required question is answered (questions.yaml)")
     a.add_argument("--headless", action="store_true", help=argparse.SUPPRESS)
 
     args = p.parse_args(argv)

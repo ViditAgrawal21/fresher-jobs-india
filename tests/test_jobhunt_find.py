@@ -325,3 +325,36 @@ def test_bundle_ignores_unsafe_paths(tmp_path):
     assert not (tmp_path / "escape.txt").exists()
     files = sorted(p.name for p in (dst.data_dir / "applications").rglob("*") if p.is_file())
     assert files == ["r.pdf"]
+
+
+def test_import_bundle_finds_the_zip_and_reads_unzipped_folders(tmp_path, monkeypatch, capsys):
+    import zipfile
+
+    from jobhunt import bundle
+    from jobhunt.__main__ import main
+
+    data = tmp_path / "data"
+    create_workbook(data / "tracker.xlsx")
+    downloads = tmp_path / "Downloads"
+    downloads.mkdir()
+    meta = '{"version": 1, "apps": [{"company": "NICE", "role": "SE", "url": "https://x/1", "status": "Tailored"}], "leads": []}'
+    with zipfile.ZipFile(downloads / "pune-picks (1).zip", "w") as z:
+        z.writestr("bundle.json", meta)
+    (downloads / "notes.zip").write_bytes(b"not a zip")
+    monkeypatch.setattr(bundle, "_downloads_dirs", lambda: [downloads])
+    monkeypatch.setenv("JOBHUNT_DATA_DIR", str(data))
+    from jobhunt.settings import get_settings
+    get_settings.cache_clear()
+    try:
+        main(["import-bundle", str(tmp_path / "nowhere" / "pune-picks.zip")])
+    finally:
+        get_settings.cache_clear()
+    out = capsys.readouterr().out
+    assert "doesn't exist" in out and "pune-picks (1).zip" in out and "1 application(s) added" in out
+    assert bundle.find_bundles() == [(downloads / "pune-picks (1).zip").resolve()]
+
+    folder = tmp_path / "unzipped"
+    folder.mkdir()
+    (folder / "bundle.json").write_text(meta.replace("https://x/1", "https://x/2"), encoding="utf-8")
+    s = JobhuntSettings(_env_file=None, jobhunt_data_dir=str(data))
+    assert bundle.import_bundle(s, folder)["added"][0][2] == "NICE"

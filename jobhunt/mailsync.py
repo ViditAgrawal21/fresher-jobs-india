@@ -387,3 +387,47 @@ def default_since(state: dict, tracker: Tracker) -> date:
     dates = [a["date_added"] for a in tracker.applications() if a["date_added"]]
     first = min((d.date() if isinstance(d, datetime) else d) for d in dates) if dates else date.today()
     return min(first, date.today() - timedelta(days=30))
+
+
+def explain_login_error(exc: Exception) -> str:
+    """A fix a person can act on, for the IMAP errors people actually hit."""
+    text = str(exc)
+    if re.search(r"AUTHENTICATIONFAILED|Invalid credentials|Application-specific password|Web login required", text, re.I):
+        return ("Gmail refused the login. Gmail only accepts an App Password here: 16 letters from "
+                "myaccount.google.com/apppasswords (2-Step Verification must be on), not your normal Google password. "
+                "Put it in GMAIL_APP_PASSWORD in .env.")
+    if re.search(r"IMAP access is disabled|not enabled for IMAP", text, re.I):
+        return "IMAP is off: in Gmail, open Settings > See all settings > Forwarding and POP/IMAP > Enable IMAP."
+    if isinstance(exc, OSError):
+        return f"Couldn't reach Gmail ({type(exc).__name__}): check your internet connection."
+    return f"Gmail sync failed: {text.splitlines()[0] if text else type(exc).__name__}"
+
+
+def run_sync(settings, *, lock=None, since: date | None = None, dry_run: bool = False, auto_add: bool = True,
+             fetch=None) -> dict:
+    """Read new mail and update the tracker. Network first, then the tracker under `lock`.
+
+    Returns {report, mails, address, since}; raises RuntimeError with explain_login_error's text."""
+    from contextlib import nullcontext
+
+    address, password = settings.gmail_login
+    if not (address and password):
+        raise RuntimeError("Set GMAIL_APP_PASSWORD (a 16-letter Google App Password) and CANDIDATE_EMAIL in .env "
+                           "to track replies from your Gmail.")
+    state_path = settings.data_dir / "mail_state.json"
+    state = load_state(state_path)
+    since = since or default_since(state, Tracker(settings.tracker_path))
+    try:
+        mails = (fetch or fetch_gmail)(address, password, since, settings.imap_host, skip_ids=set(state["processed"]))
+    except Exception as exc:
+        raise RuntimeError(explain_login_error(exc)) from exc
+    with lock or nullcontext():
+        t = Tracker(settings.tracker_path)
+        report = process(t, mails, my_address=address, dry_run=dry_run, auto_add=auto_add)
+        if not dry_run:
+            t.save()
+    if not dry_run:
+        state["last_sync"] = date.today().isoformat()
+        state["processed"] += [m.message_id for m in mails if m.message_id]
+        save_state(state_path, state)
+    return {"report": report, "mails": mails, "address": address, "since": since}

@@ -56,6 +56,9 @@ willing_to_relocate: "Yes"
 authorized_to_work_in_india: "Yes"
 needs_sponsorship: "No"
 heard_of_company_before: "Yes"
+consent_to_terms: "Yes"         # tick "I agree to the privacy policy" style boxes for you
+worked_here_before: "No"        # "Have you ever worked at {company}?"
+gender: ""                      # if a form insists, e.g. "Male", or "Decline to self-identify"
 school: {school}
 degree: {degree}
 discipline: {discipline}
@@ -68,6 +71,8 @@ education_end_year: {end_year}
 # (label pattern, answer key). First match wins, so specific patterns come first.
 # A key of None means "recognised, but leave it for you".
 RULES: list[tuple[str, str | None]] = [
+    (r"typ(e|ing) your (full )?(legal )?name|full legal name|e-?signature|electronic signature|sign(ature)? (here|below)",
+     "full_name"),
     (r"preferred (first )?name", "preferred_name"),
     (r"first\s*name|given name", "first_name"),
     (r"last\s*name|surname|family name", "last_name"),
@@ -79,22 +84,30 @@ RULES: list[tuple[str, str | None]] = [
     (r"github", "github"),
     (r"naukri", None),
     (r"portfolio|personal (site|website)|^website|other url", "portfolio"),
-    (r"current (company|employer|organi[sz]ation)|^company( name)?\b|^organi[sz]ation", "current_company"),
-    (r"current (designation|title|role|position)|^job title|^designation", "current_title"),
+    (r"(previously|ever|before|in the past|formerly).{0,40}(work|employ|consult|contract|intern)"
+     r"|(work|employ|consult|contract|intern)\w*.{0,60}\b(before|previously|in the past|ever)\b", "worked_here_before"),
+    (r"current (company|employer|organi[sz]ation|firm)|most recent employer|name of your current|^company( name)?\b"
+     r"|^organi[sz]ation", "current_company"),
+    (r"current (job )?(designation|title|role|position)|^job title|^designation", "current_title"),
     (r"notice period", "notice_period_days"),
-    (r"current (ctc|salary|compensation|annual)", "current_ctc_lpa"),
-    (r"expected (ctc|salary|compensation)|salary expectation", "expected_ctc_lpa"),
+    (r"current (fixed |annual |total )?(ctc|salary|compensation|annual|package)", "current_ctc_lpa"),
+    (r"expected (fixed |annual |total )?(ctc|salary|compensation|pay|package)|salary expectation|compensation expectation"
+     r"|desired (salary|compensation)",
+     "expected_ctc_lpa"),
     (r"relevant (professional |work )?experience", "relevant_experience_years"),
-    (r"(total|overall) (professional |work )?experience|years of (professional |work )?experience"
+    (r"(total|overall) (professional |work )?experience|years of (professional |work )?experience|experience in (number of )?years"
      r"|^(professional |work )?experience\s*\(?(in )?years", "total_experience_years"),
-    (r"location preference|preferred (work )?location", "location_preference"),
+    (r"location preference|preferred (work )?location|opportunitylocationid|which (of (our|these) )?locations?",
+     "location_preference"),
     (r"relocat", "willing_to_relocate"),
     (r"(authori[sz]ed|eligible|legally).{0,30}work|work authori[sz]ation|right to work", "authorized_to_work_in_india"),
     (r"sponsor", "needs_sponsorship"),
     (r"how did you (hear|come to know|find|learn)|where did you (hear|find)|^source\b", "how_did_you_hear"),
     (r"(know|heard) (about|of) .{0,40} before", "heard_of_company_before"),
+    (r"\bgender\b|what do you identify as", "gender"),
     (r"\bcity\b", "city"),
-    (r"^country\b", "country"),
+    (r"^country\b|country of residence|current country|choose the country|which country|country (in which|where) you",
+     "country"),
     (r"location|where are you (based|located)", "location"),
     (r"school|university|college|institution", "school"),
     (r"degree", "degree"),
@@ -102,7 +115,8 @@ RULES: list[tuple[str, str | None]] = [
     (r"start (date )?month", "education_start_month"),
     (r"start (date )?year", "education_start_year"),
     (r"(end|graduation) (date )?month", "education_end_month"),
-    (r"(end|graduation) (date )?year", "education_end_year"),
+    (r"(end|graduation) (date )?year|year of (graduation|passing|completion)|(graduation|passing|passout) year",
+     "education_end_year"),
     (r"cover letter|additional information|anything else|message to (the )?hiring", "cover_note"),
 ]
 _RULES = [(re.compile(p, re.I), k) for p, k in RULES]
@@ -113,38 +127,77 @@ CONFIRMATION = re.compile(
     re.I,
 )
 
-# Collects every form field with the text a person would read as its label.
+# Collects every form field with the text a person would read as its label, and for radio
+# buttons and checkboxes, the question they answer.
 _FIELDS_JS = """() => {
   const all = [...document.querySelectorAll('input, textarea, select')];
-  const labelOf = e => {
+  const text = x => (x && x.innerText || '').replace(/\\s+/g, ' ').trim();
+  const rawLabel = e => {
     let t = '';
-    if (e.labels && e.labels.length) t = [...e.labels].map(l => l.innerText).join(' ');
+    if (e.labels && e.labels.length) t = [...e.labels].map(text).join(' ');
     if (!t && e.getAttribute('aria-labelledby'))
-      t = e.getAttribute('aria-labelledby').split(/\\s+/).map(id => (document.getElementById(id) || {}).innerText || '').join(' ');
+      t = e.getAttribute('aria-labelledby').split(/\\s+/).map(id => text(document.getElementById(id))).join(' ');
     if (!t) t = e.getAttribute('aria-label') || '';
-    if (!t) { const box = e.closest('fieldset, li, .field, .form-group, [class*="field"], [class*="question"]');
-              const l = box && box.querySelector('label, legend'); if (l) t = l.innerText; }
+    if (!t) {  // the question's own container first (Lever: .application-question), then generic ones
+      for (const sel of ['.application-question', '[class*="question"]', 'fieldset', '.form-group', '.field', 'li', '[class*="field"]']) {
+        const box = e.closest(sel);
+        // Only the field's own container: a wrapper around many fields would lend this one another's label.
+        if (!box || box.querySelectorAll('input:not([type=hidden]), select, textarea').length > 2) continue;
+        const l = [...box.querySelectorAll('label, legend, [class*="label"]')].find(x => !x.contains(e) && text(x));
+        if (l) { t = text(l); break; }
+      }
+    }
     if (!t) t = e.placeholder || e.name || '';
-    return t.replace(/\\s+/g, ' ').replace(/[*✱]/g, '').trim();
+    return t.replace(/\\s+/g, ' ').trim();
   };
+  const questionOf = e => {
+    const fs = e.closest('fieldset');
+    if (fs && fs.querySelector('legend')) return text(fs.querySelector('legend'));
+    const g = e.closest('[role="radiogroup"], [role="group"]');
+    if (g) {
+      const ids = g.getAttribute('aria-labelledby');
+      if (ids) return ids.split(/\\s+/).map(id => text(document.getElementById(id))).join(' ');
+      if (g.getAttribute('aria-label')) return g.getAttribute('aria-label');
+    }
+    const own = new Set(e.labels ? [...e.labels] : []);
+    for (const sel of ['.application-question', '[class*="question"]', '.form-group', '.field', '[class*="field"]']) {
+      const box = e.closest(sel);
+      if (!box) continue;
+      const l = [...box.querySelectorAll('legend, [class*="label"], label, p')]
+        .find(x => !own.has(x) && !x.contains(e) && !x.querySelector('input') && text(x).length > 2);
+      if (l) return text(l);
+    }
+    return '';
+  };
+  const seen = el => !!el && (el.checkVisibility ? el.checkVisibility({ visibilityProperty: true })
+                                                 : !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length));
   const stamp = Date.now().toString(36);
   return all.map((e, n) => {
     const i = e.dataset.jhIdx || (e.dataset.jhIdx = stamp + '-' + n);
+    const type = (e.type || '').toLowerCase();
+    const choice = type === 'radio' || type === 'checkbox';
     const isCombo = e.getAttribute('role') === 'combobox' || e.getAttribute('aria-autocomplete') === 'list';
     // A dropdown widget shows its choice in a sibling element, not in the input's value.
     const box = isCombo && e.closest('[class*="control"], [class*="value-container"], [class*="ValueContainer"]');
     const shown = box && box.querySelector('[class*="single-value"], [class*="multi-value"], [class*="singleValue"]');
+    const raw = rawLabel(e), q = choice ? questionOf(e) : '';
     return {
-    i, tag: e.tagName.toLowerCase(), type: (e.type || '').toLowerCase(), name: e.name || '', id: e.id || '',
-    label: labelOf(e).slice(0, 160),
+    i, tag: e.tagName.toLowerCase(), type, name: e.name || '', id: e.id || '',
+    label: raw.replace(/[*✱]/g, '').trim().slice(0, 200),
+    question: q.replace(/[*✱]/g, '').trim().slice(0, 300),
     // checkVisibility also catches visibility:hidden, e.g. the search box of a closed phone-country picker.
-    visible: e.type === 'file' || (e.checkVisibility ? e.checkVisibility({ visibilityProperty: true })
-                                                     : !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length)),
-    empty: e.type === 'file' ? !(e.files && e.files.length) : !((e.value || '').trim() || (shown && shown.innerText.trim())),
-    combobox: e.getAttribute('role') === 'combobox' || e.getAttribute('aria-autocomplete') === 'list'
-              || /select__input|autocomplete/.test(e.className || ''),
-    required: e.required || e.getAttribute('aria-required') === 'true',
+    // Styled radio buttons and checkboxes hide the input itself, so their label counts too.
+    visible: type === 'file' || seen(e) || (choice && e.labels && [...e.labels].some(seen)),
+    empty: type === 'file' ? !(e.files && e.files.length) : !((e.value || '').trim() || (shown && shown.innerText.trim())),
+    checked: !!e.checked,
+    combobox: isCombo || /select__input|autocomplete/.test(e.className || ''),
+    required: e.required || e.getAttribute('aria-required') === 'true' || /[*✱]/.test(choice ? q || raw : raw)
+              || !!(choice && e.closest('[aria-required="true"]')),
+    options: e.tagName === 'SELECT' ? [...e.options].map(o => o.text.trim()).filter(Boolean).slice(0, 60) : [],
     touched: e.dataset.jobhunt === '1',
+    // Dropdown widgets keep an invisible input just for the browser's "required" check: not a question.
+    ghost: !choice && type !== 'file' && e.tabIndex === -1
+           && (e.getAttribute('aria-hidden') === 'true' || getComputedStyle(e).opacity === '0'),
   }; });
 }"""
 
@@ -197,6 +250,9 @@ def load_answers(settings: JobhuntSettings) -> dict:
     answers = {k: ("" if v is None else str(v)) for k, v in (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).items()}
     links = {l.label.lower(): l.url for l in profile.links}
     answers.setdefault("full_name", profile.name)
+    # Added after some answers.yaml files were made: sensible defaults until you set your own.
+    answers.setdefault("consent_to_terms", "Yes")
+    answers.setdefault("worked_here_before", "No")
     answers.setdefault("email", settings.candidate_email)
     answers.setdefault("phone", settings.candidate_phone)
     answers.setdefault("linkedin", links.get("linkedin", ""))
@@ -266,6 +322,11 @@ def _pick(options: list[str], value: str, key: str | None) -> int | None:
     v = value.strip().lower()
     if not v or not opts:
         return None
+    if key == "consent_to_terms":  # "I acknowledge", "Yes, I agree"...
+        if not _YES.match(v):
+            return None
+        return next((i for i, o in enumerate(low) if re.search(r"\b(yes|agree|acknowledge|accept|confirm|i do|i have)\b", o)
+                     and not re.search(r"\bnot\b|n't|\bno\b|disagree", o)), None)
     if key in _NUMERIC_KEYS and (nums := re.findall(r"\d+(?:\.\d+)?", v)):
         x = float(nums[0])
         best = None
@@ -283,6 +344,13 @@ def _pick(options: list[str], value: str, key: str | None) -> int | None:
     for i, o in enumerate(low):
         if o == v or (v in ("yes", "no") and o.startswith(v)):
             return i
+    if v in ("yes", "no") and not any(re.match(r"(yes|no)\b", o) for o in low):
+        # Sentence answers ("I have never been employed by X" is the one "no"), only when no choice is
+        # a plain Yes or No: with "No" / "Already in Bangalore", "Yes" must not become the second.
+        neg = re.compile(r"\bnever\b|\bnot\b|\bno\b|n't\b|\bnone\b")
+        cands = [i for i, o in enumerate(low) if bool(neg.search(o)) == (v == "no")]
+        if len(cands) == 1:
+            return cands[0]
     if key == "how_did_you_hear":
         for word in _HEARD.get(v, (v,)):
             for i, o in enumerate(low):
@@ -321,15 +389,26 @@ def _close_menu(loc) -> None:
             pass
 
 
+def _options(page, loc):
+    """The open dropdown's own options: its listbox (aria-controls), else the visible options."""
+    lb = loc.get_attribute("aria-controls") or loc.get_attribute("aria-owns")
+    if lb:
+        own = page.locator(f'[id="{lb}"] [role="option"]')
+        if own.count():
+            return own
+    return page.locator("[role='option']:visible")
+
+
 def _fill_combobox(page, loc, value: str, key: str | None) -> bool:
-    opts = page.locator("[role='option']")
     loc.click(timeout=ACTION_MS)
     page.wait_for_timeout(500)
+    opts = _options(page, loc)
     idx = _pick(opts.all_inner_texts()[:400], value, key)
     term = _search_term(value, key)
     if idx is None and term:
         loc.fill(term, timeout=ACTION_MS)
         page.wait_for_timeout(1200)
+        opts = _options(page, loc)
         idx = _pick(opts.all_inner_texts()[:400], value, key)
     if idx is None:
         try:
@@ -342,17 +421,122 @@ def _fill_combobox(page, loc, value: str, key: str | None) -> bool:
     return True
 
 
-def fill_page(page, answers: dict, resume: Path | None, done: set | None = None) -> dict:
-    """Fill recognised empty fields on the current page. Returns what it did.
+# "I agree to the privacy policy", "I confirm the information is accurate" and similar boxes.
+CONSENT = re.compile(r"\bagree\b|consent|acknowledge|privacy|terms|certify|i confirm|i understand|accurate|true and complete", re.I)
+_YES = re.compile(r"^\s*(yes|y|true|1|tick|check(ed)?)\s*$", re.I)
+
+
+def _lookup(label: str, answers: dict, bank, company: str, role: str) -> tuple[str | None, str]:
+    """(answers.yaml key or None, answer) for a question: the standard rules first, then the question bank."""
+    key, value = answer_for(label, answers)
+    if not value and bank is not None:
+        value = bank.answer(label, company, role)
+    return key, value
+
+
+def _check(page, loc, f) -> None:
+    try:
+        loc.check(timeout=ACTION_MS)
+    except Exception:
+        try:
+            loc.check(timeout=ACTION_MS, force=True)
+        except Exception:
+            if f["id"]:  # styled widgets: click the visible label instead
+                page.locator(f'label[for="{f["id"]}"]').first.click(timeout=ACTION_MS)
+            else:
+                raise
+
+
+def _fill_choices(page, fields: list[dict], answers: dict, bank, company: str, role: str,
+                  filled: list, todo: list, unknown: list) -> None:
+    """Radio button and checkbox questions, grouped by input name (or by question text)."""
+    groups: dict[tuple, list[dict]] = {}
+    for f in fields:  # every option, including ones ticked on an earlier pass, so a ticked group counts as answered
+        if f["type"] in ("radio", "checkbox") and f["visible"]:
+            groups.setdefault((f["type"], f["name"] or f["question"] or f["i"]), []).append(f)
+    for (kind, _), opts in groups.items():
+        required = any(o["required"] for o in opts)
+        if any(o["checked"] for o in opts):
+            continue
+        question = next((o["question"] for o in opts if o["question"]), "")
+        try:
+            if kind == "checkbox" and len(opts) == 1:  # a single box: consent, or a yes/no question
+                f = opts[0]
+                text = f"{question} {f['label']}".strip()
+                if CONSENT.search(text):
+                    value = answers.get("consent_to_terms", "Yes")
+                else:
+                    value = _lookup(question or f["label"], answers, bank, company, role)[1]
+                if value and _YES.match(value):
+                    _check(page, page.locator(f'[data-jh-idx="{f["i"]}"]'), f)
+                    filled.append(f["i"])
+                elif not value and required:
+                    todo.append(f["i"])
+                    unknown.append({"label": text, "kind": "checkbox", "choices": ["Yes", "No"], "required": True})
+                continue
+            labels = [o["label"] for o in opts]
+            key, value = _lookup(question, answers, bank, company, role) if question else (None, "")
+            if not value:
+                if question:
+                    unknown.append({"label": question, "kind": "radio" if kind == "radio" else "checkboxes",
+                                    "choices": labels, "required": required})
+                if required:
+                    todo.extend(o["i"] for o in opts)
+                continue
+            wanted = [value] if kind == "radio" else [v.strip() for v in value.split(",") if v.strip()]
+            hit = False
+            for w in wanted:
+                idx = _pick(labels, w, key)
+                if idx is not None:
+                    _check(page, page.locator(f'[data-jh-idx="{opts[idx]["i"]}"]'), opts[idx])
+                    filled.append(opts[idx]["i"])
+                    hit = True
+            if not hit:
+                todo.extend(o["i"] for o in opts)
+                unknown.append({"label": question, "kind": kind, "choices": labels, "required": required,
+                                "note": f"your answer '{value}' matches none of the choices"})
+        except Exception as exc:
+            log.debug("could not answer %r: %s", question, str(exc).splitlines()[0] if str(exc) else exc)
+            todo.extend(o["i"] for o in opts)
+
+
+_UNITS = {"current_ctc_lpa": "LPA", "expected_ctc_lpa": "LPA", "notice_period_days": "days",
+          "total_experience_years": "years", "relevant_experience_years": "years"}
+
+
+def _with_unit(value: str, key: str | None, input_type: str) -> str:
+    """"16" -> "16 LPA" in a free-text box, so a recruiter reads it right; number inputs keep the bare number."""
+    if key in _UNITS and input_type != "number" and re.fullmatch(r"\d+(\.\d+)?", value.strip()):
+        return f"{value.strip()} {_UNITS[key]}"
+    return value
+
+
+def _pick_suggestion(page, value: str, key: str | None) -> bool:
+    """Location boxes that only accept a choice from their suggestions (Lever, Google Places)."""
+    page.wait_for_timeout(1500)
+    sugg = page.locator(".dropdown-results > .dropdown-location:visible, [role='option']:visible, .pac-item:visible")
+    texts = sugg.all_inner_texts()[:30]
+    idx = _pick(texts, value, key) if texts else None
+    if idx is None:
+        return False
+    sugg.nth(idx).click(timeout=ACTION_MS)
+    return True
+
+
+def fill_page(page, answers: dict, resume: Path | None, done: set | None = None, *, bank=None,
+              company: str = "", role: str = "") -> dict:
+    """Fill recognised empty fields on the current page. Returns what it did, and the questions
+    it couldn't answer (`unknown`, which the question bank learns).
 
     `done` remembers the questions already answered on this tab, so a field a form
     re-renders (dropdowns do) isn't typed into again on the next pass.
     """
     done = done if done is not None else set()
     fields = page.evaluate(_FIELDS_JS)
-    filled, todo, skipped = [], [], []
+    filled, todo, skipped, unknown = [], [], [], []
     for f in fields:
-        if f["touched"] or not f["visible"] or f["type"] in ("hidden", "submit", "button", "checkbox", "radio", "search"):
+        if f["touched"] or f["ghost"] or not f["visible"] or f["type"] in ("hidden", "submit", "button", "checkbox",
+                                                                           "radio", "search", "password"):
             continue
         label = f"{f['label']} {f['name']} {f['id']}".strip() if f["type"] == "file" else f["label"]
         loc = page.locator(f'[data-jh-idx="{f["i"]}"]')
@@ -368,15 +552,24 @@ def fill_page(page, answers: dict, resume: Path | None, done: set | None = None)
                 continue
             if not f["empty"]:
                 continue
-            key, value = answer_for(label, answers)
+            key, value = _lookup(label, answers, bank, company, role)
+            if not value and CONSENT.search(label) and (f["tag"] == "select" or f["combobox"]):
+                key, value = "consent_to_terms", answers.get("consent_to_terms", "Yes")
             if not value:
                 if f["required"] and label:
                     todo.append(f["i"])
+                    kind = "dropdown" if f["tag"] == "select" or f["combobox"] else "text"
+                    if key is None:  # a question answers.yaml has no slot for: the bank learns it
+                        unknown.append({"label": label, "kind": kind, "choices": f["options"], "required": True})
                 if key or f["required"]:
                     skipped.append(label)
                 continue
             if f["tag"] == "select":
-                if _choose_option(loc, value):
+                idx = _pick(f["options"], value, key) if f["options"] else None
+                if idx is not None:
+                    loc.select_option(label=f["options"][idx])
+                    filled.append(f["i"]); done.add(memo)
+                elif key != "consent_to_terms" and _choose_option(loc, value):
                     filled.append(f["i"]); done.add(memo)
                 else:
                     todo.append(f["i"])
@@ -384,16 +577,44 @@ def fill_page(page, answers: dict, resume: Path | None, done: set | None = None)
                 (filled if _fill_combobox(page, loc, value, key) else todo).append(f["i"])
                 done.add(memo)  # tried once either way; never retried on later passes
             else:
-                loc.fill(value)
+                if key in ("location", "city") and "," in value:
+                    # Suggestion boxes (Lever, Google Places) search as you type: give them the city alone,
+                    # pick the matching suggestion, or type the full answer if there are none.
+                    loc.fill("")
+                    loc.press_sequentially(value.split(",")[0].strip(), delay=60)  # some only react to keystrokes
+                    if not _pick_suggestion(page, value, key):
+                        loc.fill(value)
+                else:
+                    loc.fill(_with_unit(value, key, f["type"]))
                 filled.append(f["i"]); done.add(memo)
         except Exception as exc:  # one awkward widget shouldn't stop the rest
             log.debug("could not fill %r: %s", label, str(exc).splitlines()[0] if str(exc) else exc)
             todo.append(f["i"])
             if f["combobox"]:
                 _close_menu(loc)
+    _fill_choices(page, fields, answers, bank, company, role, filled, todo, unknown)
+    if bank is not None:
+        for u in unknown:
+            bank.learn(u["label"], company=company, kind=u["kind"], choices=u.get("choices"), required=u["required"])
     if filled or todo:
         page.evaluate(_MARK_JS, [filled, todo])
-    return {"filled": len(filled), "todo": len(todo), "skipped": skipped}
+    return {"filled": len(filled), "todo": len(todo), "skipped": skipped, "unknown": unknown}
+
+
+def missing_required(page) -> list[str]:
+    """Required questions on the page that are still unanswered (what stops a submit)."""
+    fields = page.evaluate(_FIELDS_JS)
+    out, groups = [], {}
+    for f in fields:
+        if f["ghost"] or not f["visible"] or not f["required"] or f["type"] in ("hidden", "submit", "button", "search"):
+            continue
+        if f["type"] in ("radio", "checkbox"):
+            g = groups.setdefault((f["type"], f["name"] or f["question"] or f["i"]), [f["question"] or f["label"], False])
+            g[1] = g[1] or f["checked"]
+        elif f["empty"]:
+            out.append(f["label"] or f["name"] or "a required field")
+    out += [q for q, answered in groups.values() if not answered]
+    return list(dict.fromkeys(out))
 
 
 def is_confirmation(page) -> bool:
@@ -412,10 +633,13 @@ class Session:
     message: str = ""
     submitted: list[str] = field(default_factory=list)
     filled: dict = field(default_factory=dict)
+    auto: bool = False               # submit for you when nothing required is missing
+    jobs: dict = field(default_factory=dict)   # id -> TabState.status()
+    questions_waiting: int = 0       # required questions in questions.yaml with no answer yet
 
     def status(self) -> dict:
         return {"ids": self.ids, "state": self.state, "message": self.message, "submitted": self.submitted,
-                "filled": self.filled}
+                "filled": self.filled, "auto": self.auto, "jobs": self.jobs, "questions_waiting": self.questions_waiting}
 
 
 def autofillable(url) -> bool:
@@ -444,7 +668,8 @@ def plan(settings: JobhuntSettings, ids: list[str]) -> list[dict]:
         note = ""
         if resume and (resume.parent / "tailoring.json").exists():
             note = json.loads((resume.parent / "tailoring.json").read_text(encoding="utf-8")).get("recruiter_note", "")
-        out.append({"id": app["id"], "company": app["company"], "url": apply_url(str(app["url"]), lead_keys),
+        out.append({"id": app["id"], "company": app["company"], "role": app["role"] or "",
+                    "url": apply_url(str(app["url"]), lead_keys),
                     "resume": resume if resume and resume.exists() else None, "note": note,
                     "source": app["source"] or ""})
     return out
@@ -462,72 +687,108 @@ def ready_ids(settings: JobhuntSettings, limit: int = 5) -> list[str]:
     return [a["id"] for a in ready[:limit]]
 
 
+def _closed(exc: Exception) -> bool:
+    """You closed the window or a tab: that ends the run, it isn't an error."""
+    return "has been closed" in str(exc) or "Target closed" in str(exc) or "Browser closed" in str(exc)
+
+
 def run(settings: JobhuntSettings, ids: list[str], session: Session | None = None, *, headless: bool = False,
-        minutes: int = 45, on_submitted=None, lock: threading.Lock | None = None) -> Session:
-    """Open each application in its own tab, keep filling as forms change, and record submissions."""
+        minutes: int = 45, on_submitted=None, lock: threading.Lock | None = None, auto: bool = False) -> Session:
+    """Open each application in its own tab, keep filling as forms change, and record submissions.
+
+    With `auto`, each form is submitted for you once nothing required is missing (see autoapply.py)."""
     from playwright.sync_api import sync_playwright
 
+    from jobhunt.autoapply import TabState, step
+    from jobhunt.questions import QuestionBank
+
     session = session or Session(ids=ids)
+    session.auto = auto
     jobs = plan(settings, ids)
     if not jobs:
         session.state, session.message = "done", "Nothing to open: those applications have no company apply link."
         return session
     answers = load_answers(settings)
+    bank = QuestionBank(settings.data_dir / "questions.yaml")
     lock = lock or threading.Lock()
     profile_dir = settings.data_dir / "browser-profile"
+    tabs = []
     try:
         with sync_playwright() as p:
             kwargs = {"executable_path": settings.chromium_path} if settings.chromium_path else {}
             ctx = p.chromium.launch_persistent_context(str(profile_dir), headless=headless, viewport=None, **kwargs)
-            tabs = []
+            closed = {"yes": False}
+            ctx.on("close", lambda *_: closed.update(yes=True))
             for job in jobs:
                 page = ctx.new_page()
                 page.set_default_timeout(ACTION_MS)
                 try:
                     page.goto(job["url"], wait_until="domcontentloaded", timeout=45000)
                 except Exception as exc:
+                    if _closed(exc):
+                        raise
                     log.warning("couldn't open %s: %s", job["url"], exc)
                 ans = dict(answers, cover_note=job["note"],
                            how_did_you_hear=answers.get("how_did_you_hear") or
                            ("LinkedIn" if job["source"] == "LinkedIn" else "Company careers page"))
-                tabs.append((page, job, ans, set()))
+                tabs.append((page, job, ans, set(), TabState()))
+                session.jobs[job["id"]] = tabs[-1][4].status()
             for blank in [pg for pg in ctx.pages if pg.url in ("about:blank", "")]:
                 if len(ctx.pages) > 1:
                     blank.close()
             session.state = "running"
-            session.message = (f"{len(tabs)} application tab(s) open. Check each form, answer the orange fields, "
-                               "solve any CAPTCHA and click Submit yourself.")
+            session.message = (f"{len(tabs)} application tab(s) open. "
+                               + ("Each is submitted for you once every required question is answered; anything "
+                                  "it can't answer is listed here." if auto else
+                                  "Check each form, answer the orange fields and click Submit yourself."))
             deadline = time.time() + minutes * 60
-            while time.time() < deadline:
+            while time.time() < deadline and not closed["yes"]:
                 open_tabs = [t for t in tabs if not t[0].is_closed()]
                 if not open_tabs:
                     break
-                for pg, job, ans, done in open_tabs:
+                for pg, job, ans, done, tab in open_tabs:
                     if job["id"] in session.submitted:
                         continue
                     try:
-                        res = fill_page(pg, ans, job["resume"], done)
+                        res = fill_page(pg, ans, job["resume"], done, bank=bank, company=job["company"],
+                                        role=job.get("role", ""))
                         session.filled[job["id"]] = session.filled.get(job["id"], 0) + res["filled"]
-                        if is_confirmation(pg):
+                        finished = is_confirmation(pg)
+                        step(pg, tab, settings=settings, missing=[] if finished else missing_required(pg),
+                             is_done=finished, auto=auto)
+                        session.jobs[job["id"]] = tab.status()
+                        if finished:
                             session.submitted.append(job["id"])
                             if on_submitted:
                                 with lock:
                                     on_submitted(job["id"])
                     except Exception as exc:  # the page navigated or closed mid-fill
+                        if _closed(exc) and closed["yes"]:
+                            break
                         log.debug("tab %s: %s", job["id"], exc)
-                open_tabs[0][0].wait_for_timeout(2000)
-            ctx.close()
-        session.state = "done"
-        session.message = (f"Done. Submitted: {', '.join(session.submitted) or 'none detected'}. "
-                           "If you submitted one that didn't show a thank-you page, mark it submitted yourself.")
+                bank.save()
+                session.questions_waiting = sum(1 for q in bank.unanswered() if q.get("required"))
+                if auto and all(t[1]["id"] in session.submitted for t in tabs):
+                    break  # every form went through: nothing left to watch
+                time.sleep(2)
+            if not closed["yes"]:
+                ctx.close()
     except Exception as exc:
-        first = (str(exc).strip().splitlines() or [type(exc).__name__])[0]
-        if "Executable doesn't exist" in str(exc):
-            first = "Chromium isn't installed for Playwright. Run: python -m playwright install chromium"
-        elif "XServer" in str(exc) or "headed browser" in str(exc):
-            first = "This computer has no screen to show the browser window on."
-        session.state, session.message = "error", f"Autofill stopped: {first}"
-        log.exception("autofill failed")
+        if not _closed(exc):
+            first = (str(exc).strip().splitlines() or [type(exc).__name__])[0]
+            if "Executable doesn't exist" in str(exc):
+                first = "Chromium isn't installed for Playwright. Run: python -m playwright install chromium"
+            elif "XServer" in str(exc) or "headed browser" in str(exc):
+                first = "This computer has no screen to show the browser window on."
+            session.state, session.message = "error", f"Autofill stopped: {first}"
+            log.exception("autofill failed")
+            return session
+    bank.save()
+    left = [i for i in session.ids if i not in session.submitted]
+    session.state = "done"
+    session.message = (f"Finished. Submitted: {', '.join(session.submitted) or 'none'}."
+                       + (f" Not submitted: {', '.join(left)}; if you sent one yourself, click Mark submitted." if left else "")
+                       + (f" {session.questions_waiting} question(s) in questions.yaml need your answer." if session.questions_waiting else ""))
     return session
 
 

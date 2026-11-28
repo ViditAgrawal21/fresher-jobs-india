@@ -6,11 +6,15 @@ For example, from a Claude cloud session to your laptop:
 
 Each application keeps its tailored resume, report, JD and tailoring, and gets the next free ID
 in the tracker it's imported into. Jobs already in that tracker (same link) are skipped.
+With no file named, `import-bundle` finds the newest bundle in your Downloads, Desktop, Documents
+and project folders, zipped or already unzipped.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import sys
 import zipfile
 from datetime import date, datetime
 from pathlib import Path, PurePosixPath
@@ -65,10 +69,80 @@ def _safe(name: str, top: str) -> PurePosixPath | None:
     return p
 
 
+class _Folder:
+    """An unzipped bundle, read like the zip."""
+
+    def __init__(self, root: Path):
+        self.root = root
+
+    def namelist(self) -> list[str]:
+        return [p.relative_to(self.root).as_posix() for p in self.root.rglob("*") if p.is_file()]
+
+    def read(self, name: str) -> bytes:
+        return (self.root / name).read_bytes()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _is_bundle(path: Path) -> bool:
+    try:
+        if path.is_dir():
+            return (path / "bundle.json").is_file()
+        with zipfile.ZipFile(path) as z:
+            return "bundle.json" in z.namelist()
+    except (OSError, zipfile.BadZipFile):
+        return False
+
+
+def _downloads_dirs() -> list[Path]:
+    """Your Downloads folder, also when Windows or OneDrive moved it."""
+    out = [Path.home() / "Downloads"]
+    if sys.platform == "win32":
+        try:
+            import winreg
+
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                 r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders")
+            value, _ = winreg.QueryValueEx(key, "{374DE290-123F-4565-9164-39C4925E467B}")
+            out.insert(0, Path(os.path.expandvars(value)))
+        except OSError:
+            pass
+        if os.environ.get("OneDrive"):
+            out.append(Path(os.environ["OneDrive"]) / "Downloads")
+    return out
+
+
+def find_bundles(extra: list[Path] | None = None) -> list[Path]:
+    """Bundles (zips or unzipped folders) in the usual places, newest first."""
+    cwd = Path.cwd()
+    places = [*(extra or []), *_downloads_dirs(), Path.home() / "Desktop", Path.home() / "Documents", cwd, cwd.parent]
+    found: dict[Path, float] = {}
+    for d in places:
+        try:
+            if not d.is_dir():
+                continue
+            for p in d.iterdir():
+                if (p.suffix.lower() == ".zip" or p.is_dir()) and _is_bundle(p):
+                    found[p.resolve()] = p.stat().st_mtime
+        except OSError:
+            continue
+    return sorted(found, key=found.get, reverse=True)
+
+
 def import_bundle(settings: JobhuntSettings, path: Path, lock=None) -> dict:
     from contextlib import nullcontext
 
-    with zipfile.ZipFile(path) as z, (lock or nullcontext()):
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(str(path))
+    opened = _Folder(path) if path.is_dir() else zipfile.ZipFile(path)
+    with opened as z, (lock or nullcontext()):
+        if "bundle.json" not in z.namelist():
+            raise ValueError(f"{path} isn't a jobhunt bundle (it has no bundle.json).")
         meta = json.loads(z.read("bundle.json"))
         if meta.get("version") != VERSION:
             raise ValueError("This bundle was made by a different version of jobhunt: update with git pull first.")
