@@ -94,9 +94,13 @@ class LeverSource(_BoardSource):
             if not _wanted(j["text"], location):
                 continue
             # Requirements (where "0-2 years" usually lives) are in `lists`, not the description.
-            parts = [j.get("descriptionPlain") or ""]
+            # Some boards (hevodata, mindtickle; seen 28 Nov) leave every *Plain field and
+            # `lists` empty and only fill the HTML fields, so fall back to those. HTML is
+            # fine here: normalize.to_row runs html_to_text before anything is stored.
+            parts = [j.get("descriptionPlain") or j.get("description") or j.get("descriptionBody") or ""]
             for block in j.get("lists") or []:
                 parts.append(f"{block.get('text', '')}\n{block.get('content', '')}")
+            parts.append(j.get("additionalPlain") or j.get("additional") or "")
             out.append(RawPost(
                 source=self.name,
                 source_id=f"{slug}:{j['id']}",
