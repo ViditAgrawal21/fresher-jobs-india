@@ -122,6 +122,13 @@
   .af-status.err { border-color: var(--crit); color: var(--crit); }
   .af-status ul { margin: 6px 0 0; padding-left: 18px; }
   .af-status li.err { color: var(--crit); }
+  .review-item { display: grid; gap: 4px; padding: 8px 0; border-top: 1px solid var(--ring); }
+  .review-item:first-of-type { border-top: 0; }
+  .review-item .subj { font-weight: 600; }
+  .review-item .from { color: var(--ink-2); font-size: 12px; }
+  .review-item .acts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .review-item select, .review-item button { min-height: 28px; font-size: 12.5px; }
+  .review-item button.go { background: var(--have); color: #ffffff; border-color: var(--have); }
   .add-job { margin: 0 0 12px; font-size: 13px; }
   .add-job summary { cursor: pointer; color: var(--have); }
   .add-form { display: grid; gap: 8px; margin-top: 8px; max-width: 760px; }
@@ -195,12 +202,16 @@
           <button type="button" id="af-all" class="go">Start autofill</button>
           <button type="button" id="vf-btn" title="Ask each company's job board whether the job is still open, and when it was published">Check jobs are still open</button>
           <button type="button" id="mail-btn" title="Read your Gmail for replies from companies and move those applications forward">Check email for replies</button>
+          <label title="While this page's server runs: checks email, checks jobs are still open, searches for new jobs and tailors resumes for the best new matches, on a schedule">
+            <input type="checkbox" id="pilot-on"> Autopilot</label>
         </div>
+        <div class="board-note" id="pilot-note" role="status"></div>
         <div class="board-note" id="mail-note" role="status"></div>
         <div class="board-note" id="board-note" role="status"></div>
       </div>
     </div>
     <div class="af-status" id="af-status" role="status" aria-live="polite" hidden></div>
+    <div class="af-status" id="mail-review" hidden></div>
     <div class="board-wrap"><div class="board" id="board"></div></div>
   </section>
 
@@ -819,12 +830,70 @@
     note.className = "board-note" + (j.state === "error" ? " err" : "");
     note.textContent = j.state === "idle" ? (j.configured ? "" : "Email tracking is off: add GMAIL_APP_PASSWORD to .env.") : j.message;
     if (j.state === "running") { mailWatching = true; mailTimer = setTimeout(pollMail, 3000); }
-    else if (mailWatching) { mailWatching = false; if (j.changes || j.added) reload(); }
+    else if (mailWatching) { mailWatching = false; if (j.changes || j.added) reload(); loadReview(); }
   }
   document.getElementById("mail-btn").addEventListener("click", async () => {
     try { await post("/api/sync-mail", {}); mailWatching = true; pollMail(); }
     catch (e) { const n = document.getElementById("mail-note"); n.className = "board-note err"; n.textContent = e.message; }
   });
+
+  // ---------- autopilot (server mode) ----------
+  const pilotBox = document.getElementById("pilot-on");
+  async function pollPilot() {
+    let j;
+    try { j = await (await fetch("/api/autopilot", { cache: "no-store" })).json(); } catch (e) { return; }
+    pilotBox.checked = j.on;
+    const p = j.plan, n = document.getElementById("pilot-note");
+    const every = (h, what) => h > 0 ? `${what} every ${h} h` : null;
+    const parts = [every(p.mail_hours, "email"), every(p.verify_hours, "jobs checked"), every(p.discover_hours, "new jobs searched"),
+      p.tailor_per_day > 0 ? `up to ${p.tailor_per_day} resumes a day tailored for new matches with ${p.tailor_min_score}%+ JD match (${j.tailored_today} today)` : null]
+      .filter(Boolean);
+    n.textContent = j.on
+      ? `Autopilot on: ${parts.join(", ")}.` + (p.discover_hours > 0 ? ` Next search ${j.next.discover}.` : "") + (j.log.length ? ` Last: ${j.log[0]}.` : "")
+      : "Autopilot off: email, job checks and searches run only when you click.";
+  }
+  pilotBox.addEventListener("change", async () => {
+    try { await post("/api/autopilot", { on: pilotBox.checked }); } catch (e) {}
+    pollPilot();
+  });
+
+  // ---------- emails it couldn't place (server mode) ----------
+  async function loadReview() {
+    let j;
+    try { j = await (await fetch("/api/mail-review", { cache: "no-store" })).json(); } catch (e) { return; }
+    const box = document.getElementById("mail-review"), items = j.items || [];
+    box.textContent = "";
+    box.hidden = !items.length;
+    if (!items.length) return;
+    node("b", {}, box, `Emails to check (${items.length}). `);
+    node("span", {}, box, "Recruiting emails that didn't name a company you track. Link each to its job once: its sender's domain is remembered, so the next ones are placed by themselves.");
+    const choices = D.apps.filter(a => a.status !== "Lead").sort((x, y) => x.company.localeCompare(y.company));
+    for (const it of items.slice(0, 8)) {
+      const row = node("div", { class: "review-item" }, box);
+      node("div", { class: "subj" }, row, it.subject || "(no subject)");
+      node("div", { class: "from" }, row, `${it.sender} · ${fmtDate(String(it.received).slice(0, 10))}${it.signal ? ` · looks like: ${it.signal}` : ""}`);
+      if (it.snippet) node("div", { class: "from", title: it.snippet }, row, it.snippet.slice(0, 160) + (it.snippet.length > 160 ? "…" : ""));
+      const acts = node("div", { class: "acts" }, row);
+      const sel = node("select", { "aria-label": `Which job is "${it.subject}" about?` }, acts);
+      node("option", { value: "" }, sel, "Which job is this about?");
+      const hint = new Set((it.candidates || []).map(c => c.toLowerCase()));
+      for (const a of choices) {
+        const o = node("option", { value: a.id }, sel, `${a.id} ${a.company}: ${a.role.slice(0, 40)}`);
+        if (hint.size && [...hint].some(h => a.company.toLowerCase().includes(h))) o.textContent = "★ " + o.textContent;
+      }
+      const link = node("button", { type: "button", class: "go" }, acts, "Link");
+      link.addEventListener("click", async () => {
+        if (!sel.value) { sel.focus(); return; }
+        try {
+          const r = await post("/api/mail-review/link", { message_id: it.message_id, app_id: sel.value, remember: true });
+          boardNote(`Linked to ${r.app_id} ${r.company}${r.remembered ? `; emails from ${r.remembered} will be placed there by themselves` : ""}.`);
+          await reload(); loadReview();
+        } catch (e) { boardNote(`Couldn't link it: ${e.message}`, true); }
+      });
+      const skip = node("button", { type: "button" }, acts, "Not about a job");
+      skip.addEventListener("click", async () => { try { await post("/api/mail-review/dismiss", { message_id: it.message_id }); } catch (e) {} loadReview(); });
+    }
+  }
 
   // ---------- autofill (server mode) ----------
   const subBox = document.getElementById("af-submit");
@@ -912,6 +981,9 @@
       pollVerify();
       pollTasks();
       pollMail();
+      pollPilot();
+      loadReview();
+      setInterval(() => { pollMail(); pollVerify(); pollTasks(); pollPilot(); }, 30000);
       return;
     }
     if (typeof window.claude?.use !== "function") {

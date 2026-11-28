@@ -205,12 +205,23 @@ def verify_applications(settings: JobhuntSettings, ids: list[str] | None = None,
                 if (wanted is None and a["status"] in READY) or (wanted is not None and str(a["id"]).upper() in wanted)]
     own = client is None
     client = client or httpx.Client(timeout=25, follow_redirects=True, headers={"User-Agent": "jobhunt (personal job search)"})
-    results, ashby = [], {}
-    try:
-        for n, (app_id, company, role, url, key) in enumerate(todo, start=1):
+    ashby: dict = {}
+    done, count_lock = [0], threading.Lock()
+
+    def one(item) -> Result:
+        app_id, company, role, url, key = item
+        res = Result(app_id, company, role, check_posting(client, url, key, today, ashby))
+        with count_lock:
+            done[0] += 1
             if progress:
-                progress(n, len(todo), company)
-            results.append(Result(app_id, company, role, check_posting(client, url, key, today, ashby)))
+                progress(done[0], len(todo), company)
+        return res
+
+    # Several boards at once: one slow board (Lever can take a minute) no longer holds up the rest.
+    from concurrent.futures import ThreadPoolExecutor
+    try:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(one, todo))
     finally:
         if own:
             client.close()

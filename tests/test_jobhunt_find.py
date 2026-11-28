@@ -145,7 +145,8 @@ def test_fetch_job_from_board_links():
 
 @pytest.fixture
 def settings(tmp_path: Path) -> JobhuntSettings:
-    s = JobhuntSettings(_env_file=None, jobhunt_data_dir=str(tmp_path), candidate_email="me@example.com", anthropic_api_key="")
+    s = JobhuntSettings(_env_file=None, jobhunt_data_dir=str(tmp_path), candidate_email="me@example.com", anthropic_api_key="",
+                        auto_tailor_per_day=0)  # autopilot tailoring is tested on its own
     create_workbook(s.tracker_path)
     t = Tracker(s.tracker_path)
     t.add_leads([{"key": "greenhouse:acme:1", "company": "Acme", "title": "Backend Engineer", "location": "Remote - India",

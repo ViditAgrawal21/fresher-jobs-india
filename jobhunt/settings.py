@@ -47,6 +47,14 @@ class JobhuntSettings(BaseSettings):
     preferred_cities: str = "Pune, Mumbai, Bengaluru"
     remote_abroad: bool = True
 
+    # Autopilot (dashboard): how often it checks email, checks jobs are still open and searches for
+    # new jobs (0 turns one off), and how many new matches a day it tailors resumes for.
+    autopilot_mail_hours: float = 2
+    autopilot_verify_hours: float = 12
+    autopilot_discover_hours: float = 24
+    auto_tailor_per_day: int = 5
+    auto_tailor_min_score: int = 70
+
     @property
     def gmail_login(self) -> tuple[str, str]:
         """(address, app password): the address defaults to CANDIDATE_EMAIL; spaces in the password are ignored."""

@@ -77,6 +77,18 @@ class DiscoverRequest(BaseModel):
     wider: bool = False  # also jobs up to STALE_JOB_DAYS old, and other Indian cities
 
 
+class LinkMail(BaseModel):
+    """An email from "Emails to check": which application it's about (or none, to dismiss)."""
+
+    message_id: str = Field(min_length=1, max_length=500)
+    app_id: str = Field("", max_length=12)
+    remember: bool = True
+
+
+class PilotSwitch(BaseModel):
+    on: bool
+
+
 class AutofillRequest(BaseModel):
     ids: list[str] = Field(default_factory=list, max_length=10)
     all_ready: bool = False
@@ -85,7 +97,8 @@ class AutofillRequest(BaseModel):
 
 
 def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PORT, checker=None,
-               check_on_start: bool = False, finder=None, tailorer=None, mailer=None) -> FastAPI:
+               check_on_start: bool = False, finder=None, tailorer=None, mailer=None,
+               autopilot_loop: bool = False) -> FastAPI:
     """`runner`, `checker`, `finder` and `tailorer` replace autofill.run, verify.verify_applications,
     discover.run_discover and tailor_job in tests."""
     app = FastAPI(title="jobhunt", docs_url=None, redoc_url=None, openapi_url=None)
@@ -219,6 +232,27 @@ def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PO
     def mail_status() -> dict:
         return {k: mail[k] for k in ("state", "message", "changes", "added")} | {"configured": all(settings.gmail_login)}
 
+    @app.get("/api/mail-review")
+    def mail_review():
+        from jobhunt.mailsync import review_items
+        return {"items": review_items(settings)}
+
+    @app.post("/api/mail-review/link")
+    def mail_review_link(req: LinkMail):
+        from jobhunt.mailsync import link_review
+        try:
+            return link_review(settings, req.message_id, req.app_id, remember=req.remember, lock=lock)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc).strip("'\"")) from exc
+        except RuntimeError as exc:
+            raise HTTPException(423, str(exc)) from exc
+
+    @app.post("/api/mail-review/dismiss")
+    def mail_review_dismiss(req: LinkMail):
+        from jobhunt.mailsync import dismiss_review
+        dismiss_review(settings, req.message_id)
+        return {"ok": True}
+
     @app.get("/api/report.xlsx")
     def report_download():
         from jobhunt.report import build_report
@@ -240,10 +274,36 @@ def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PO
                                      "then restart the dashboard.")
         return start_mail()
 
-    if check_on_start and _needs_check(settings):
-        start_check()
-    if check_on_start and all(settings.gmail_login):
-        start_mail()
+    # ---------- autopilot ----------
+    from jobhunt.autopilot import Autopilot
+
+    def pilot_tailor(row: int) -> None:
+        with lock:
+            lead = Tracker(settings.tracker_path).lead(row)
+        queue_tailor(TailorRequest(row=row), f"{lead['company']}: {lead['title']} (autopilot)")
+
+    pilot = Autopilot(settings, start_mail=lambda: start_mail() if all(settings.gmail_login) else False,
+                      start_check=start_check, start_discover=lambda: start_discover(label="Find more jobs (autopilot)"),
+                      queue_tailor=pilot_tailor)
+
+    @app.get("/api/autopilot")
+    def autopilot_status():
+        return pilot.status()
+
+    @app.post("/api/autopilot")
+    def autopilot_set(req: PilotSwitch):
+        pilot.set_on(req.on)
+        if req.on:
+            threading.Thread(target=pilot.tick, daemon=True).start()
+        return pilot.status()
+
+    if autopilot_loop:
+        threading.Thread(target=pilot.run_forever, daemon=True, name="autopilot").start()
+    if check_on_start and not (autopilot_loop and pilot.state.get("on")):
+        if _needs_check(settings):
+            start_check()
+        if all(settings.gmail_login):
+            start_mail()
 
     # ---------- find more jobs / tailor a resume ----------
     def new_task(kind: str, label: str) -> Task:
@@ -254,11 +314,13 @@ def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PO
 
     @app.post("/api/discover")
     def discover_start(req: DiscoverRequest | None = None):
-        wider = bool(req and req.wider)
+        return start_discover(bool(req and req.wider)).status()
+
+    def start_discover(wider: bool = False, label: str = "") -> Task:
         running = next((t for t in tasks if t.kind == "discover" and t.state in ("queued", "running")), None)
         if running:
-            return running.status()
-        task = new_task("discover", "Find more jobs (wider search)" if wider else "Find more jobs")
+            return running
+        task = new_task("discover", label or ("Find more jobs (wider search)" if wider else "Find more jobs"))
 
         def run():
             from jobhunt.discover import SOURCE_LABELS
@@ -270,13 +332,17 @@ def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PO
                              wider=wider)
                 task.message = (f"Checked {out['posts']} jobs: {len(out['rows'])} match your profile and locations, "
                                 f"{out['added']} new below.")
+                if pilot is not None:  # tailor the best new matches (within today's limit)
+                    queued = pilot.after_discover(build_data(settings)["leads"])
+                    if queued:
+                        task.message += f" Autopilot is tailoring resumes for the best {len(queued)}."
                 task.state = "done"
             except Exception as exc:
                 task.state, task.message = "error", f"The search stopped: {str(exc).splitlines()[0] if str(exc) else type(exc).__name__}"
                 log.exception("discover failed")
 
         threading.Thread(target=run, daemon=True, name="discover").start()
-        return task.status()
+        return task
 
     def tailor_worker():
         while True:
@@ -305,12 +371,15 @@ def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PO
             label = f"{lead['company']}: {lead['title']}"
         else:
             label = " ".join(x for x in (req.company, req.role) if x) or req.url.strip()[:80] or "Pasted job"
+        return queue_tailor(req, label).status()
+
+    def queue_tailor(req: TailorRequest, label: str) -> Task:
         task = new_task("tailor", label)
         work.put((req, task))
         if worker["thread"] is None or not worker["thread"].is_alive():
             worker["thread"] = threading.Thread(target=tailor_worker, daemon=True, name="tailor")
             worker["thread"].start()
-        return task.status()
+        return task
 
     @app.get("/api/tasks")
     def tasks_status():
@@ -493,4 +562,5 @@ def serve(settings: JobhuntSettings, port: int = DEFAULT_PORT, open_browser: boo
     print(f"Dashboard: {url}\nKeep this window open while you use it. Ctrl+C stops it.")
     if open_browser:
         threading.Timer(1.0, webbrowser.open, args=(url,)).start()
-    uvicorn.run(create_app(settings, port=port, check_on_start=True), host="127.0.0.1", port=port, log_level="warning")
+    uvicorn.run(create_app(settings, port=port, check_on_start=True, autopilot_loop=True), host="127.0.0.1", port=port,
+                log_level="warning")

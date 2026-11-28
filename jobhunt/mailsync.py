@@ -137,10 +137,28 @@ def _contains(haystack: str, key: str) -> bool:
     return re.search(r"(?<![a-z0-9])" + re.escape(key) + r"(?![a-z0-9])", haystack) is not None
 
 
-def match_application(mail: MailItem, apps: list) -> tuple[object | None, list[str]]:
-    """The one tracked application this email is about, or (None, candidates) if none/ambiguous."""
+# Domains many companies send from: an email from one of these says nothing about which company it is.
+SHARED_DOMAINS = re.compile(r"(^|\.)(gmail|googlemail|yahoo|outlook|hotmail|live|icloud|proton|rediffmail|zoho|"
+                            r"greenhouse|greenhouse-mail|lever|hire\.lever|ashbyhq|smartrecruiters|myworkday|workday|icims|"
+                            r"bamboohr|zohorecruit|keka|darwinbox|linkedin|naukri|indeed|instahyre|wellfound|cutshort|hirist|"
+                            r"foundit|iimjobs|glassdoor|aperturehq|calendly|google|zoom|microsoft)\.", re.I)
+
+
+def sender_domain(sender: str) -> str:
+    addr = parseaddr(sender)[1]
+    return addr.split("@")[-1].lower() if "@" in addr else ""
+
+
+def match_application(mail: MailItem, apps: list, domains: dict | None = None) -> tuple[object | None, list[str]]:
+    """The one tracked application this email is about, or (None, candidates) if none/ambiguous.
+
+    `domains` maps a sender domain you linked by hand ("talent.acme.io") to an application ID."""
     name, addr = parseaddr(mail.sender)
     domain = addr.split("@")[-1].lower() if "@" in addr else ""
+    if domains and domain in domains:
+        known = next((a for a in apps if str(a["id"]) == domains[domain]), None)
+        if known is not None:
+            return known, [company_key(known["company"] or "")]
     head = f"{name} {domain} {mail.subject}".lower()
     body = mail.body[:2500].lower()
     strong, weak = [], []
@@ -231,14 +249,14 @@ def application_from_email(mail: MailItem) -> dict | None:
 # ---------- applying to the tracker ----------
 
 def process(tracker: Tracker, mails: list[MailItem], *, my_address: str = "", dry_run: bool = False,
-            auto_add: bool = True) -> SyncReport:
+            auto_add: bool = True, domains: dict | None = None) -> SyncReport:
     report = SyncReport()
     apps = [a for a in tracker.applications() if a["status"] not in ("Lead",)]
     my_address = my_address.lower()
     for mail in sorted(mails, key=lambda m: m.received):
         if my_address and my_address in mail.sender.lower():
             continue  # our own sent mail
-        app, companies = match_application(mail, apps)
+        app, companies = match_application(mail, apps, domains)
         signal = classify(mail)
         if app is None:
             relevant = is_recruiting_sender(mail) or _PORTAL.search(mail.sender)
@@ -344,6 +362,10 @@ def parse_message(raw: bytes) -> MailItem:
 # Gmail-side filter: only mail that could be about a job application. Gmail applies it before
 # anything is downloaded, so a mailbox of tens of thousands of emails costs a few seconds.
 GMAIL_FILTER = ("-in:sent -in:chats -category:promotions -category:social -category:forums "
+                # Job alerts and recommendations aren't replies; application confirmations come from other senders.
+                "-from:jobalerts-noreply@linkedin.com -from:jobs-listings@linkedin.com -from:naukrialerts@naukri.com "
+                "-from:alert@indeed.com -subject:\"job alert\" -subject:\"jobs for you\" -subject:\"recommended jobs\" "
+                "-subject:\"new jobs\" -subject:\"jobs matching\" -subject:\"jobs you may\" "
                 "{application applied applying apply interview interviews assessment assignment candidate candidature "
                 "offer recruiter recruiting recruitment hiring position role job career careers talent opportunity "
                 "shortlisted unfortunately \"next steps\" \"thank you for\"}")
@@ -469,11 +491,79 @@ def run_sync(settings, *, lock=None, since: date | None = None, dry_run: bool = 
         raise RuntimeError(explain_login_error(exc)) from exc
     with lock or nullcontext():
         t = Tracker(settings.tracker_path)
-        report = process(t, mails, my_address=address, dry_run=dry_run, auto_add=auto_add)
+        report = process(t, mails, my_address=address, dry_run=dry_run, auto_add=auto_add,
+                         domains=state.get("domains") or {})
         if not dry_run:
             t.save()
     if not dry_run:
         state["last_sync"] = date.today().isoformat()
         state["processed"] += [m.message_id for m in mails if m.message_id]
+        _add_to_review(state, report)
         save_state(state_path, state)
     return {"report": report, "mails": mails, "address": address, "since": since}
+
+
+# ---------- emails to check: ones it couldn't place, which you link once ----------
+
+def _review_item(mail: MailItem, candidates: list[str]) -> dict:
+    return {"message_id": mail.message_id, "received": mail.received.isoformat(), "sender": mail.sender[:200],
+            "subject": mail.subject[:250], "snippet": " ".join(mail.body.split())[:400], "signal": classify(mail) or "",
+            "candidates": candidates}
+
+
+def _add_to_review(state: dict, report: SyncReport) -> None:
+    items = state.setdefault("review", [])
+    known = {x["message_id"] for x in items}
+    new = [_review_item(m, []) for m in report.unmatched] + [_review_item(m, c) for m, c in report.ambiguous]
+    for item in new:
+        if item["message_id"] not in known:
+            items.append(item)
+            known.add(item["message_id"])
+    state["review"] = items[-60:]
+
+
+def review_items(settings) -> list[dict]:
+    return list(reversed(load_state(settings.data_dir / "mail_state.json").get("review", [])))
+
+
+def link_review(settings, message_id: str, app_id: str, *, remember: bool = True, lock=None) -> dict:
+    """Apply an email you placed by hand to that application (status, reply, email log), and remember
+    the sender's domain for next time unless many companies send from it."""
+    from contextlib import nullcontext
+
+    state_path = settings.data_dir / "mail_state.json"
+    with lock or nullcontext():
+        state = load_state(state_path)
+        item = next((x for x in state.get("review", []) if x["message_id"] == message_id), None)
+        if item is None:
+            raise KeyError("That email isn't in the list any more.")
+        t = Tracker(settings.tracker_path)
+        app = t.find(app_id)
+        if app is None:
+            raise KeyError(f"No application {app_id}.")
+        mail = MailItem(message_id=item["message_id"], received=datetime.fromisoformat(item["received"]),
+                        sender=item["sender"], subject=item["subject"], body=item["snippet"])
+        domain = sender_domain(item["sender"])
+        report = process(t, [mail], domains={domain: str(app["id"])}, auto_add=False)
+        if not report.changes:  # no signal: still record that they wrote back
+            received = mail.received.astimezone().replace(tzinfo=None)
+            t.update(app["id"], email_received="Yes", last_email_date=received.date(), last_email_from=mail.sender[:200],
+                     last_email_subject=mail.subject[:250])
+            t.log_email(received=received, **{"from": mail.sender[:200]}, subject=mail.subject[:250], app_id=app["id"],
+                        company=app["company"], signal="Other", action="linked by hand", message_id=mail.message_id)
+        t.save()
+        remembered = bool(remember and domain and not SHARED_DOMAINS.search(domain + "."))
+        if remembered:
+            state.setdefault("domains", {})[domain] = str(app["id"])
+        state["review"] = [x for x in state["review"] if x["message_id"] != message_id]
+        save_state(state_path, state)
+    change = report.changes[0] if report.changes else None
+    return {"app_id": app["id"], "company": app["company"], "remembered": domain if remembered else "",
+            "status": change.new_status if change and change.new_status else app["status"]}
+
+
+def dismiss_review(settings, message_id: str) -> None:
+    state_path = settings.data_dir / "mail_state.json"
+    state = load_state(state_path)
+    state["review"] = [x for x in state.get("review", []) if x["message_id"] != message_id]
+    save_state(state_path, state)

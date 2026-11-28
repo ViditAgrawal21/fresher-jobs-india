@@ -12,6 +12,20 @@ A personal job-search toolkit that lives next to the Fresher Jobs India pipeline
 
 With **Submit for me** ticked (next to Start autofill), it submits each form itself once every required question has an answer. It clicks Next through multi-page forms (Oracle, SmartRecruiters) and enters the security code some sites email you, read from your Gmail. Every question a form asks that `answers.yaml` doesn't cover is saved to `jobhunt/data/questions.yaml` with its choices. Answer each one once and every later form that asks it is filled and submitted. A form waits for you, with the reason shown on the dashboard, when it has a CAPTCHA, needs you to sign in or create an account (Workday: do it once in that window), or has a required question you haven't answered yet. Without Submit for me, you read every field and click Submit yourself.
 
+## Autopilot, reports and email that learns
+
+- **Autopilot** (switch on the dashboard, on by default) keeps things moving while `serve` runs:
+  - checks Gmail for replies every 2 hours;
+  - checks jobs are still open every 12 hours;
+  - searches for new jobs once a day;
+  - tailors resumes for up to 5 of the best new matches a day: JD match 70%+, fresh, in your places.
+
+  Applying stays your click (Auto-apply). Change the timings in `.env` with `AUTOPILOT_MAIL_HOURS`, `AUTOPILOT_VERIFY_HOURS`, `AUTOPILOT_DISCOVER_HOURS`, `AUTO_TAILOR_PER_DAY` and `AUTO_TAILOR_MIN_SCORE`; 0 turns a part off.
+- **Gmail sync** reads only job-related mail, starting the day you began applying (or `MAIL_SINCE`). Job alerts, promotions and social mail are filtered out on Gmail's side.
+- **Emails to check:** when a recruiter writes from an address that doesn't name a company you track, the email is listed on the dashboard. Link it to its job once and that sender's domain is remembered. Shared domains (Gmail, Greenhouse, LinkedIn...) are never remembered.
+- **Download Excel report** (or `python -m jobhunt report`): summary, pipeline and funnel, weekly progress, skills demand, response rates, every application, job matches, email log and questions, with charts. The counts are live formulas.
+- `python -m jobhunt questions` shows where `answers.yaml` and `questions.yaml` are and which questions still need you, then opens both files.
+
 ## One-time setup (Windows, PowerShell)
 
 ```powershell
