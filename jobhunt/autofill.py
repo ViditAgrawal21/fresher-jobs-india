@@ -219,6 +219,8 @@ def apply_url(url: str, lead_keys: dict[str, str] | None = None) -> str:
     host, path = u.netloc.lower(), u.path.rstrip("/")
     # Greenhouse: the embed page is the bare form. The normal job page redirects to the company's
     # own careers site for some companies, where the form hides behind an Apply button or an iframe.
+    if host.endswith(".eu.greenhouse.io"):
+        return url  # EU-hosted board: its own job page carries the form
     if host in ("job-boards.greenhouse.io", "boards.greenhouse.io"):
         m = re.match(r"/([\w-]+)/jobs/(\d+)$", path)
         return f"https://job-boards.greenhouse.io/embed/job_app?for={m[1]}&token={m[2]}" if m else url

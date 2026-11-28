@@ -46,6 +46,8 @@ def test_apply_url_and_autofillable():
     assert autofill.apply_url(gh, {gh: "greenhouse:sigmoid:123"}) == embed
     assert autofill.apply_url("https://job-boards.greenhouse.io/sigmoid/jobs/123") == embed
     assert autofill.apply_url(embed) == embed
+    eu = "https://boards.eu.greenhouse.io/nice/jobs/5044602101?gh_jid=5044602101"
+    assert autofill.apply_url(eu, {eu: "greenhouse:nice:5044602101"}) == eu
     assert autofill.autofillable("https://job-boards.greenhouse.io/x/jobs/1")
     assert not autofill.autofillable("https://www.linkedin.com/jobs/view/1")
     assert not autofill.autofillable("https://www.naukri.com/job-listings-x")
