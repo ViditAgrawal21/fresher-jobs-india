@@ -341,8 +341,36 @@ def parse_message(raw: bytes) -> MailItem:
     )
 
 
+# Gmail-side filter: only mail that could be about a job application. Gmail applies it before
+# anything is downloaded, so a mailbox of tens of thousands of emails costs a few seconds.
+GMAIL_FILTER = ("-in:sent -in:chats -category:promotions -category:social -category:forums "
+                "{application applied applying apply interview interviews assessment assignment candidate candidature "
+                "offer recruiter recruiting recruitment hiring position role job career careers talent opportunity "
+                "shortlisted unfortunately \"next steps\" \"thank you for\"}")
+
+
+def _search(imap, since: date) -> list[bytes]:
+    """Message numbers since `since`: Gmail's own search with the job filter when it's Gmail,
+    else a plain IMAP date search."""
+    try:
+        status, data = imap.search(None, "X-GM-RAW", f'"after:{since:%Y/%m/%d} {GMAIL_FILTER.replace(chr(34), chr(92) + chr(34))}"')
+        if status == "OK":
+            return data[0].split() if data and data[0] else []
+    except imaplib.IMAP4.error:
+        pass  # not Gmail: no X-GM-RAW
+    status, data = imap.search(None, "SINCE", since.strftime("%d-%b-%Y"))
+    return data[0].split() if status == "OK" and data and data[0] else []
+
+
+def _chunks(items: list, n: int):
+    for i in range(0, len(items), n):
+        yield items[i:i + n]
+
+
 def fetch_gmail(address: str, app_password: str, since: date, host: str = "imap.gmail.com",
-                skip_ids: set[str] | None = None, max_messages: int = 2000) -> list[MailItem]:
+                skip_ids: set[str] | None = None, max_messages: int = 2000, progress=None) -> list[MailItem]:
+    """New mail since `since` that could be about a job. Headers come in batches first; full messages
+    are downloaded only for mail not seen before and not sent by you. `progress(done, total)`."""
     skip_ids = skip_ids or set()
     out: list[MailItem] = []
     with imaplib.IMAP4_SSL(host) as imap:
@@ -351,19 +379,29 @@ def fetch_gmail(address: str, app_password: str, since: date, host: str = "imap.
         status, _ = imap.select('"[Gmail]/All Mail"', readonly=True)
         if status != "OK":
             imap.select("INBOX", readonly=True)
-        status, data = imap.search(None, "SINCE", since.strftime("%d-%b-%Y"))
-        ids = data[0].split()[-max_messages:] if status == "OK" and data and data[0] else []
-        for num in ids:
-            status, hdr = imap.fetch(num, "(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID FROM)])")
-            if status != "OK" or not hdr or not isinstance(hdr[0], tuple):
+        ids = _search(imap, since)[-max_messages:]
+        wanted: list[bytes] = []
+        for batch in _chunks(ids, 200):
+            status, rows = imap.fetch(b",".join(batch), "(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID FROM)])")
+            if status != "OK":
                 continue
-            head = email.message_from_bytes(hdr[0][1])
-            mid = (head.get("Message-ID") or "").strip()
-            if (mid and mid in skip_ids) or (address and address.lower() in (head.get("From") or "").lower()):
-                continue
-            status, msg_data = imap.fetch(num, "(BODY.PEEK[])")
-            if status == "OK" and msg_data and isinstance(msg_data[0], tuple):
-                out.append(parse_message(msg_data[0][1]))
+            for row in rows:
+                if not isinstance(row, tuple):
+                    continue
+                num = row[0].split()[0]
+                head = email.message_from_bytes(row[1])
+                mid = (head.get("Message-ID") or "").strip()
+                if (mid and mid in skip_ids) or (address and address.lower() in (head.get("From") or "").lower()):
+                    continue
+                wanted.append(num)
+        done = 0
+        for batch in _chunks(wanted, 25):
+            status, rows = imap.fetch(b",".join(batch), "(BODY.PEEK[])")
+            if status == "OK":
+                out += [parse_message(row[1]) for row in rows if isinstance(row, tuple)]
+            done += len(batch)
+            if progress:
+                progress(done, len(wanted))
     return out
 
 
@@ -381,12 +419,19 @@ def save_state(path: Path, state: dict) -> None:
     path.write_text(json.dumps(state, indent=1), encoding="utf-8")
 
 
-def default_since(state: dict, tracker: Tracker) -> date:
+def default_since(state: dict, tracker: Tracker, override: str = "") -> date:
+    """Where a sync starts reading: MAIL_SINCE if set; else just before the last sync; else the day
+    you started applying (your first application, or the first job you added). Never your whole mailbox."""
+    if override:
+        return date.fromisoformat(override)
     if state.get("last_sync"):
         return date.fromisoformat(state["last_sync"]) - timedelta(days=1)  # overlap; processed ids dedupe
-    dates = [a["date_added"] for a in tracker.applications() if a["date_added"]]
-    first = min((d.date() if isinstance(d, datetime) else d) for d in dates) if dates else date.today()
-    return min(first, date.today() - timedelta(days=30))
+    as_date = lambda d: d.date() if isinstance(d, datetime) else d  # noqa: E731
+    apps = tracker.applications()
+    applied = [as_date(a["date_applied"]) for a in apps if a["date_applied"]]
+    added = [as_date(a["date_added"]) for a in apps if a["date_added"]]
+    first = min(applied or added or [date.today()])
+    return first - timedelta(days=1)
 
 
 def explain_login_error(exc: Exception) -> str:
@@ -404,7 +449,7 @@ def explain_login_error(exc: Exception) -> str:
 
 
 def run_sync(settings, *, lock=None, since: date | None = None, dry_run: bool = False, auto_add: bool = True,
-             fetch=None) -> dict:
+             fetch=None, progress=None) -> dict:
     """Read new mail and update the tracker. Network first, then the tracker under `lock`.
 
     Returns {report, mails, address, since}; raises RuntimeError with explain_login_error's text."""
@@ -416,9 +461,10 @@ def run_sync(settings, *, lock=None, since: date | None = None, dry_run: bool = 
                            "to track replies from your Gmail.")
     state_path = settings.data_dir / "mail_state.json"
     state = load_state(state_path)
-    since = since or default_since(state, Tracker(settings.tracker_path))
+    since = since or default_since(state, Tracker(settings.tracker_path), settings.mail_since)
     try:
-        mails = (fetch or fetch_gmail)(address, password, since, settings.imap_host, skip_ids=set(state["processed"]))
+        kw = {"progress": progress} if progress else {}
+        mails = (fetch or fetch_gmail)(address, password, since, settings.imap_host, skip_ids=set(state["processed"]), **kw)
     except Exception as exc:
         raise RuntimeError(explain_login_error(exc)) from exc
     with lock or nullcontext():

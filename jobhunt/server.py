@@ -188,7 +188,10 @@ def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PO
     # ---------- replies from companies (Gmail) ----------
     def mail_default():
         from jobhunt.mailsync import run_sync
-        return run_sync(settings, lock=lock)
+
+        def progress(done, total):
+            mail["message"] = f"Reading job-related emails: {done} of {total}…"
+        return run_sync(settings, lock=lock, progress=progress)
 
     mailer_fn = mailer or mail_default
 
@@ -202,7 +205,8 @@ def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PO
                 out = mailer_fn()
                 rep_ = out["report"]
                 mail.update(state="done", changes=len(rep_.changes), added=len(rep_.added),
-                            message=(f"Read {len(out['mails'])} new emails: {len(rep_.changes)} matched your applications"
+                            message=(f"Checked job emails since {out['since']:%d %b}: {len(out['mails'])} new, "
+                                     f"{len(rep_.changes)} matched your applications"
                                      + (f", {len(rep_.added)} new applications found in confirmation emails" if rep_.added else "")
                                      + "."))
             except Exception as exc:  # wrong App Password, IMAP off, offline: say which
@@ -214,6 +218,16 @@ def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PO
 
     def mail_status() -> dict:
         return {k: mail[k] for k in ("state", "message", "changes", "added")} | {"configured": all(settings.gmail_login)}
+
+    @app.get("/api/report.xlsx")
+    def report_download():
+        from jobhunt.report import build_report
+
+        with lock:
+            body = build_report(settings)
+        name = f"job-search-report-{date.today().isoformat()}.xlsx"
+        return Response(body, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
 
     @app.get("/api/sync-mail")
     def sync_mail_status():

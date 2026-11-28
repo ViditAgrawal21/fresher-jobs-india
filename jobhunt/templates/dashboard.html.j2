@@ -110,6 +110,10 @@
   .board-note { font-size: 12.5px; color: var(--ink-2); }
   .board-note.err { color: var(--crit); }
   .empty-col { font-size: 12px; color: var(--ink-2); padding: 4px; }
+  .head-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  a.btn { display: inline-flex; align-items: center; min-height: 34px; padding: 4px 12px; border-radius: 8px; font: inherit;
+          font-size: 13px; text-decoration: none; background: var(--have); color: #ffffff; border: 1px solid var(--have); }
+  a.btn:hover { filter: brightness(1.08); }
   .pipe-tools { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
   .af-bar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12.5px; }
   .af-bar button.go { background: var(--have); color: #ffffff; border-color: var(--have); }
@@ -149,7 +153,11 @@
       <h1>Job search: {{ name }}</h1>
       <div class="sub" id="generated"></div>
     </div>
-    {% if not artifact %}<button id="theme" type="button" aria-label="Switch light or dark theme">Theme</button>{% endif %}
+    <div class="head-tools">
+      <a id="report-btn" class="btn" href="api/report.xlsx" download hidden
+         title="Everything on this page in one Excel file: summary, pipeline, every application, weekly progress, skills, response rates, job matches, emails and questions">Download Excel report</a>
+      {% if not artifact %}<button id="theme" type="button" aria-label="Switch light or dark theme">Theme</button>{% endif %}
+    </div>
   </header>
 
   <div class="filters" role="group" aria-label="Filters">
@@ -895,6 +903,7 @@
       document.getElementById("af-bar").hidden = false;
       document.getElementById("foot").textContent = "Live from tracker.xlsx: moves save there straight away. Autofill fills forms in a browser window; you check each one and click Submit. Stop the server with Ctrl+C in its terminal.";
       boardNote("Moves save to tracker.xlsx.");
+      document.getElementById("report-btn").hidden = false;
       document.getElementById("find-btn").hidden = false;
       document.getElementById("wider-wrap").hidden = false;
       document.getElementById("add-job").hidden = false;

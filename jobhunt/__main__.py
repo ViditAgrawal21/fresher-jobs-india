@@ -365,6 +365,18 @@ def cmd_import_bundle(args, s) -> None:
     print(f"{len(out['added'])} application(s) added to Ready to apply, {out['leads']} new job match(es).")
 
 
+def cmd_report(args, s) -> None:
+    from jobhunt.report import write_report
+
+    out = write_report(s, Path(args.out) if args.out else None)
+    print(f"Excel report: {out.resolve()}")
+    if not args.no_open:
+        import os
+
+        if sys.platform == "win32":
+            os.startfile(str(out))  # type: ignore[attr-defined]
+
+
 def cmd_questions(args, s) -> None:
     """Where questions.yaml and answers.yaml are, what's still unanswered, and open them."""
     from jobhunt import autofill
@@ -487,6 +499,10 @@ def main(argv: list[str] | None = None) -> None:
     a = sub.add_parser("import-bundle", help="add the applications and job matches in a bundle zip to your tracker")
     a.add_argument("file", nargs="?", help="the zip (or unzipped folder); default: the newest one in Downloads etc.")
 
+    a = sub.add_parser("report", help="an Excel report with the dashboard's numbers, charts and every application")
+    a.add_argument("--out", help="file to write (default jobhunt/data/reports/job-search-report-DATE.xlsx)")
+    a.add_argument("--no-open", action="store_true")
+
     a = sub.add_parser("questions", help="where answers.yaml and questions.yaml are, what's unanswered; opens them")
     a.add_argument("--no-open", action="store_true", help="just print, don't open the files")
 
@@ -509,7 +525,8 @@ def main(argv: list[str] | None = None) -> None:
      "list": cmd_list, "followups": cmd_followups, "sync-mail": cmd_sync_mail, "discover": cmd_discover,
      "dashboard": cmd_dashboard, "import-status": cmd_import_status, "serve": cmd_serve, "verify": cmd_verify,
      "autofill": cmd_autofill,
-     "export-bundle": cmd_export_bundle, "import-bundle": cmd_import_bundle, "questions": cmd_questions}[args.cmd](args, s)
+     "export-bundle": cmd_export_bundle, "import-bundle": cmd_import_bundle, "questions": cmd_questions,
+     "report": cmd_report}[args.cmd](args, s)
 
 
 if __name__ == "__main__":

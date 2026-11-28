@@ -33,6 +33,9 @@ class JobhuntSettings(BaseSettings):
     chromium_path: str = ""
 
     followup_after_days: int = 7
+    # Gmail sync reads mail from the day you started applying (your first application in the
+    # tracker), not your whole mailbox. Set MAIL_SINCE=YYYY-MM-DD to choose the start yourself.
+    mail_since: str = ""
 
     # Freshness caps, in days since the company first published a job. `discover` keeps jobs up to
     # FRESH_JOB_DAYS old; jobs older than STALE_JOB_DAYS are marked old and skipped by autofill.

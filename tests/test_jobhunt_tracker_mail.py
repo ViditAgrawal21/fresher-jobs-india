@@ -143,3 +143,76 @@ def test_confirmation_for_untracked_job_adds_a_row(tracker: Tracker):
     # a promo from an untracked company adds nothing
     process(tracker, [mail("Swiggy <offers@swiggy.in>", "Thank you for your order", "Order received")])
     assert tracker.find("A005") is None
+
+
+# ---------- reading Gmail efficiently ----------
+
+def test_sync_starts_at_your_first_application(tracker: Tracker):
+    from jobhunt.mailsync import default_since
+
+    first_applied = min(a["date_applied"] for a in tracker.applications() if a["date_applied"])
+    first_applied = first_applied.date() if hasattr(first_applied, "date") else first_applied
+    assert default_since({}, tracker) == first_applied - timedelta(days=1)
+    assert default_since({"last_sync": "2026-12-05"}, tracker) == date(2026, 12, 4)
+    assert default_since({"last_sync": "2026-12-05"}, tracker, "2026-11-20") == date(2026, 11, 20)
+
+
+class FakeImap:
+    """Stands in for imaplib.IMAP4_SSL: two job emails, one you sent, one already read."""
+
+    searches: list = []
+    fetches: list = []
+
+    def __init__(self, host):
+        self.msgs = {
+            b"1": (b"<a@x>", "Greenhouse <no-reply@greenhouse.io>", "Thank you for applying to Acme"),
+            b"2": (b"<b@x>", "me@example.com", "Re: my application"),
+            b"3": (b"<c@x>", "Talent <talent@acme.com>", "Interview invitation"),
+            b"4": (b"<old@x>", "Talent <talent@beta.com>", "Next steps"),
+        }
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def login(self, user, password):
+        pass
+
+    def select(self, box, readonly=False):
+        return "OK", [b"4"]
+
+    def search(self, charset, *criteria):
+        FakeImap.searches.append(criteria)
+        return "OK", [b"1 2 3 4"]
+
+    def fetch(self, nums, what):
+        FakeImap.fetches.append((nums, what))
+        rows = []
+        for n in nums.split(b","):
+            mid, frm, subj = self.msgs[n]
+            if "HEADER.FIELDS" in what:
+                rows.append((n + b" (BODY[HEADER.FIELDS (MESSAGE-ID FROM)] {40}", b"Message-ID: " + mid + f"\r\nFrom: {frm}\r\n\r\n".encode()))
+            else:
+                raw = (f"Message-ID: {mid.decode()}\r\nFrom: {frm}\r\nSubject: {subj}\r\n"
+                       "Date: Mon, 30 Nov 2026 10:00:00 +0000\r\n\r\nHello").encode()
+                rows.append((n + b" (BODY[] {99}", raw))
+            rows.append(b")")
+        return "OK", rows
+
+
+def test_fetch_gmail_filters_on_gmail_and_batches(monkeypatch):
+    from jobhunt import mailsync
+
+    monkeypatch.setattr(mailsync.imaplib, "IMAP4_SSL", FakeImap)
+    FakeImap.searches.clear(); FakeImap.fetches.clear()
+    seen = []
+    mails = mailsync.fetch_gmail("me@example.com", "pw", date(2026, 11, 25), skip_ids={"<old@x>"},
+                                 progress=lambda done, total: seen.append((done, total)))
+    assert [m.subject for m in mails] == ["Thank you for applying to Acme", "Interview invitation"]
+    crit = FakeImap.searches[0]
+    assert crit[0] == "X-GM-RAW" and "after:2026/11/25" in crit[1] and "-category:promotions" in crit[1]
+    assert FakeImap.fetches[0][0] == b"1,2,3,4"           # headers in one batch
+    assert FakeImap.fetches[1][0] == b"1,3"               # full text only for new mail not sent by you
+    assert seen == [(2, 2)]
