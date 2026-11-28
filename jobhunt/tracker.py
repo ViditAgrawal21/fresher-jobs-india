@@ -93,6 +93,7 @@ LEAD_COLUMNS = [
     ("Exp Required", 10, "exp"), ("Match %", 8, "score"), ("Track", 11, "track"), ("Matched Skills", 36, "matched"),
     ("Missing Skills", 26, "missing"), ("Source", 12, "source"), ("URL", 36, "url"), ("Posted", 12, "posted"),
     ("Decision", 10, "decision"), ("Lead Key", 30, "key"), ("Employees (approx)", 11, "employees"),
+    ("Where", 22, "where"),
 ]
 LCOL = {key: i + 1 for i, (_, _, key) in enumerate(LEAD_COLUMNS)}
 

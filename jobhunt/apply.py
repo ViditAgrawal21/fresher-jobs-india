@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import date
 from pathlib import Path
 
@@ -29,7 +30,10 @@ def _cost(usage: dict) -> float | None:
 
 def prepare_application(settings: JobhuntSettings, *, jd: str, company: str, role: str, url: str = "",
                         location: str = "", source: str = "", offline: bool = False, variant: Path | None = None,
-                        applied: bool = False, applied_with: str = "", replace: str | None = None) -> dict:
+                        applied: bool = False, applied_with: str = "", replace: str | None = None,
+                        lock=None) -> dict:
+    """Tailor, render and track one application. `lock` (the dashboard server's tracker lock) is held
+    only while the tracker is read and written, not during tailoring and rendering."""
     if len(jd.strip()) < 200:
         raise ValueError("The job description looks too short (under 200 characters). Paste the full posting.")
     profile = load_profile(settings.profile_path)
@@ -38,11 +42,13 @@ def prepare_application(settings: JobhuntSettings, *, jd: str, company: str, rol
     result = tailor(profile, jd, company, role, contact, offline=offline, model=settings.tailor_model,
                     effort=settings.tailor_effort, api_key=settings.anthropic_api_key, manual=manual)
 
-    tracker = Tracker(settings.tracker_path)  # opened before writing files, so a locked workbook fails early
-    existing = tracker.find(replace) if replace else None
+    lock = lock or nullcontext()
+    with lock:
+        tracker = Tracker(settings.tracker_path)  # read before writing files, so a bad --replace fails early
+        existing = tracker.find(replace) if replace else None
+        app_id = existing["id"] if existing else tracker.next_id()
     if replace and existing is None:
         raise ValueError(f"no application {replace} to replace")
-    app_id = existing["id"] if existing else tracker.next_id()
     folder = settings.data_dir / "applications" / f"{app_id}_{slug(company, 24)}_{slug(role, 32)}"
     if existing and existing["resume"]:
         folder = (settings.data_dir / str(existing["resume"])).parent  # same folder, files overwritten
@@ -70,12 +76,16 @@ def prepare_application(settings: JobhuntSettings, *, jd: str, company: str, rol
     if applied or not existing:  # a re-tailor keeps the row's status and dates
         row |= dict(status="Applied" if applied else "Tailored", date_applied=date.today() if applied else None,
                     applied_with=applied_with or (settings.candidate_email if applied else None))
-    if existing:
-        tracker.update(app_id, **row)
-        tracker.append_note(app_id, f"[{date.today():%d %b}] resume re-tailored ({result.source})")
-    else:
-        tracker.add_application(id=app_id, **row)
-    tracker.save()
+    with lock:
+        tracker = Tracker(settings.tracker_path)  # re-read: the dashboard may have saved changes meanwhile
+        if existing:
+            tracker.update(app_id, **row)
+            tracker.append_note(app_id, f"[{date.today():%d %b}] resume re-tailored ({result.source})")
+        else:
+            if tracker.find(app_id):  # the ID was taken while this one was being tailored
+                app_id = tracker.next_id()
+            tracker.add_application(id=app_id, **row)
+        tracker.save()
     return {"id": app_id, "folder": folder, "pdf": pdf, "pages": pages, "cuts": cuts, "ats": ats,
             "result": result, "report": report}
 

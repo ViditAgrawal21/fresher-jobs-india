@@ -39,6 +39,11 @@ class JobhuntSettings(BaseSettings):
     fresh_job_days: int = 30
     stale_job_days: int = 60
 
+    # Where you want to work, in order: remote in India, remote roles open to India (if
+    # REMOTE_ABROAD), then hybrid and office jobs in PREFERRED_CITIES. Other places are left out.
+    preferred_cities: str = "Pune, Mumbai, Bengaluru"
+    remote_abroad: bool = True
+
     @property
     def gmail_login(self) -> tuple[str, str]:
         """(address, app password): the address defaults to CANDIDATE_EMAIL; spaces in the password are ignored."""

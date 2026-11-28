@@ -16,6 +16,7 @@ from markupsafe import Markup
 
 from jobhunt.discover import EMPLOYEES, lead_description, size_band
 from jobhunt.keywords import DOMAIN
+from jobhunt.locations import classify
 from jobhunt.profile import load_profile
 from jobhunt.settings import JobhuntSettings
 from jobhunt.tailor import keyword_coverage
@@ -54,6 +55,19 @@ def _weeks(tracker: Tracker) -> list[dict]:
     return out or [{"week": d.isoformat(), "target": t} for d, t in WEEK_TARGETS]
 
 
+def _where_rank(label: str) -> int:
+    """The location rank from a stored label (see locations.py)."""
+    if label.startswith("Remote (India)"):
+        return 0
+    if label.startswith("Remote"):
+        return 1
+    if "(wider search)" in label:
+        return 4
+    if label.startswith("Hybrid"):
+        return 2
+    return 3
+
+
 def build_data(settings: JobhuntSettings, today: date | None = None) -> dict:
     today = today or date.today()
     profile = load_profile(settings.profile_path)
@@ -85,6 +99,8 @@ def build_data(settings: JobhuntSettings, today: date | None = None) -> dict:
         posting = str(a["posting"] or "")
         fresh = freshness(posted, today, fresh_days, stale_days)
         size_rank = size_band(EMPLOYEES.get(a["company"]))[0]
+        where = classify(str(a["location"]), "", settings.preferred_cities, settings.remote_abroad) if a["location"] else None
+        where_rank = where.rank if where and where.ok else 4
 
         def rel(name: str) -> str | None:
             return f"{folder.relative_to(data_dir).as_posix()}/{name}" if folder and (folder / name).exists() else None
@@ -112,9 +128,11 @@ def build_data(settings: JobhuntSettings, today: date | None = None) -> dict:
             # Ready-to-apply order: fresh jobs first, then aging/undated, then old; inside each,
             # by company size band; advised-against jobs last.
             # A job with an application deadline goes first: it won't wait.
-            "rank": 99 if "Not recommended" in str(a["notes"] or "") else
+            # Inside each age bucket: your location preference, then company size.
+            "rank": 999 if "Not recommended" in str(a["notes"] or "") else
                     -1 if posting.startswith("Open: apply by") else
-                    {"fresh": 0, "aging": 10, "unknown": 10, "old": 20}[fresh] + size_rank,
+                    {"fresh": 0, "aging": 100, "unknown": 100, "old": 200}[fresh] + 10 * where_rank + size_rank,
+            "where": where.label if where else "", "where_ok": bool(where and where.ok),
             "resume": str(a["resume"]).replace("\\", "/") if a["resume"] and (data_dir / str(a["resume"])).exists() else None,
             "report": rel("report.md"), "jd": rel("job_description.txt"),
         })
@@ -131,8 +149,15 @@ def build_data(settings: JobhuntSettings, today: date | None = None) -> dict:
         lp = lead["posted"].date() if isinstance(lead["posted"], datetime) else lead["posted"]
         if lp and (today - lp).days > stale_days:
             continue  # too old to be worth a tailored resume
+        where_label = lead.get("where") or ""
+        w = classify(str(lead["location"] or ""), "", settings.preferred_cities, settings.remote_abroad)
+        if not where_label:
+            if not w.ok:
+                continue  # found before location preferences existed, and not in one of your places
+            where_label = w.label
         leads.append({
             "row": r, "company": lead["company"], "title": lead["title"] or "", "location": lead["location"] or "",
+            "where": where_label, "where_rank": _where_rank(where_label), "source": str(lead["source"] or ""),
             "exp": lead["exp"] or "", "score": lead["score"] or 0, "track": lead["track"] or "Other",
             "size": size_band(EMPLOYEES.get(lead["company"]))[1],
             "matched": _split(lead["matched"]), "missing": _split(lead["missing"]), "url": lead["url"] or "",
@@ -140,7 +165,8 @@ def build_data(settings: JobhuntSettings, today: date | None = None) -> dict:
             "decision": lead["decision"] or "New",
             "has_jd": bool(lead_description(data_dir / "leads", str(lead["key"]))),
         })
-    leads.sort(key=lambda x: x["score"], reverse=True)
+    # Best JD match first, then your preferred kind of location, then the newest.
+    leads.sort(key=lambda x: (-x["score"], x["where_rank"], x["age"] if x["age"] is not None else 999))
 
     return {
         "name": profile.name,
@@ -149,7 +175,8 @@ def build_data(settings: JobhuntSettings, today: date | None = None) -> dict:
         # Status changes saved from the hosted dashboard after this moment override the tracker's.
         "built_ms": int(datetime.now().timestamp() * 1000),
         "follow_days": settings.followup_after_days,
-        "fresh_days": fresh_days, "stale_days": stale_days,
+        "fresh_days": fresh_days, "stale_days": stale_days, "cities": settings.preferred_cities,
+        "remote_abroad": settings.remote_abroad, "claude": bool(settings.anthropic_api_key),
         "supported": sorted(profile.supported_terms()),
         "domain": sorted(DOMAIN),
         "apps": apps,

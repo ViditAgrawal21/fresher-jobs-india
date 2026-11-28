@@ -117,6 +117,20 @@
   .af-status { font-size: 12.5px; border: 1px solid var(--ring); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
   .af-status.err { border-color: var(--crit); color: var(--crit); }
   .af-status ul { margin: 6px 0 0; padding-left: 18px; }
+  .af-status li.err { color: var(--crit); }
+  .add-job { margin: 0 0 12px; font-size: 13px; }
+  .add-job summary { cursor: pointer; color: var(--have); }
+  .add-form { display: grid; gap: 8px; margin-top: 8px; max-width: 760px; }
+  .add-form label { display: grid; gap: 4px; font-size: 12.5px; color: var(--ink-2); }
+  .add-form .opt { color: var(--ink-2); font-weight: 400; }
+  .add-form input, .add-form textarea { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--ring);
+                                        border-radius: 8px; padding: 6px 8px; min-height: 32px; width: 100%; box-sizing: border-box; }
+  .add-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  @media (max-width: 640px) { .add-row { grid-template-columns: 1fr; } }
+  .acts-cell { white-space: nowrap; }
+  .acts-cell a, .acts-cell button { margin-right: 6px; font-size: 12.5px; }
+  .acts-cell button { min-height: 28px; padding: 2px 8px; }
+  .acts-cell button.go { background: var(--have); color: #ffffff; border-color: var(--have); }
   .files a:hover { text-decoration: underline; }
   code { font-size: 12px; background: var(--page); padding: 1px 5px; border-radius: 4px; border: 1px solid var(--ring); white-space: nowrap; }
   .tip { position: fixed; pointer-events: none; background: var(--surface); color: var(--ink); border: 1px solid var(--ring);
@@ -178,6 +192,35 @@
     <div class="board-wrap"><div class="board" id="board"></div></div>
   </section>
 
+  <section class="card" style="margin-bottom:16px" aria-labelledby="leads-h">
+    <div class="card-head">
+      <div><h2 id="leads-h">New job matches</h2><div class="sub" id="leads-sub"></div></div>
+      <div class="af-bar">
+        <select id="f-where" aria-label="Where">
+          <option value="all">All your places</option><option value="remote">Remote only</option>
+          <option value="hybrid">Hybrid</option><option value="office">In the office</option><option value="wider">Other cities (wider search)</option>
+        </select>
+        <label id="wider-wrap" hidden title="Also jobs up to 60 days old, and other Indian cities (ranked after yours)">
+          <input type="checkbox" id="wider"> Wider search</label>
+        <button type="button" id="find-btn" class="go" hidden>Find more jobs</button>
+      </div>
+    </div>
+    <details class="add-job" id="add-job" hidden>
+      <summary>Add a job by its link (or paste its description)</summary>
+      <form id="add-form" class="add-form">
+        <label>Job link<input id="add-url" type="url" placeholder="https://…" autocomplete="off"></label>
+        <div class="add-row">
+          <label>Company <span class="opt">(if it isn't filled in for you)</span><input id="add-company" autocomplete="off"></label>
+          <label>Job title <span class="opt">(same)</span><input id="add-role" autocomplete="off"></label>
+        </div>
+        <label>Job description <span class="opt">(paste it for LinkedIn and Naukri jobs, which can't be read automatically)</span><textarea id="add-jd" rows="5"></textarea></label>
+        <div><button type="submit" class="go">Get the JD and tailor my resume</button></div>
+      </form>
+    </details>
+    <div class="af-status" id="task-status" role="status" aria-live="polite" hidden></div>
+    <div class="table-wrap"><table id="leads"></table></div>
+  </section>
+
   <section class="grid">
     <div class="card">
       <div class="card-head"><div><h2>Funnel</h2><div class="sub">Sent applications and how far they got. Auto "we received it" emails don't count as a response.</div></div></div>
@@ -219,10 +262,6 @@
     <div class="table-wrap"><table id="apps"></table></div>
   </section>
 
-  <section class="card">
-    <div class="card-head"><div><h2>Leads to apply to next</h2><div class="sub">Found by <code>python -m jobhunt discover</code>, best match first. Run the command shown to get a tailored resume.</div></div></div>
-    <div class="table-wrap"><table id="leads"></table></div>
-  </section>
 
   <footer id="foot">Rebuild with <code>python -m jobhunt dashboard</code> after <code>apply</code>, <code>sync-mail</code> or <code>discover</code>. The data lives in tracker.xlsx; this page only reads it.</footer>
 </main>
@@ -268,7 +307,9 @@
     if (!o || !(o.updated_ms > D.built_ms)) return a;
     return { ...a, status: o.status, changed: o.date, applied: a.applied || (NOT_SENT.has(o.status) ? null : o.date) };
   }
-  const state = { track: "All", size: "all", age: "hide-old", period: "all", q: "", scope: "apps", sort: { key: "added", dir: -1 } };
+  const state = { track: "All", size: "all", age: "hide-old", period: "all", q: "", scope: "apps", sort: { key: "added", dir: -1 }, where: "all" };
+  const whereOk = l => state.where === "all" || (state.where === "remote" ? l.where_rank <= 1 : state.where === "hybrid" ? l.where_rank === 2
+    : state.where === "office" ? l.where_rank === 3 : l.where_rank === 4);
   // The job-age cap only applies to Ready to apply: once a job is sent or closed, its post date no longer matters.
   const ageOk = a => !["Lead", "Tailored"].includes(a.status) || state.age === "all" || (state.age === "fresh" ? a.fresh === "fresh" : a.fresh !== "old");
   const sizeOk = x => state.size === "all" || x.size === state.size
@@ -298,7 +339,8 @@
     return D.apps.map(effective).filter(a => (state.track === "All" || a.track === state.track) && sizeOk(a) && ageOk(a) && inPeriod(a.applied || a.added)
       && (!state.q || hay([a.company, a.role, a.status, a.source, ...a.matched, ...a.missing])));
   }
-  function leads() {
+  function leads() { return leadsAll().filter(whereOk); }
+  function leadsAll() {
     return D.leads.filter(l => (state.track === "All" || l.track === state.track) && sizeOk(l) && inPeriod(l.found)
       && (!state.q || hay([l.company, l.title, l.location, ...l.matched, ...l.missing])));
   }
@@ -539,26 +581,103 @@
       if (a.url && /^https?:\/\//.test(a.url)) node("a", { href: a.url, target: "_blank", rel: "noopener" }, f, "Posting");
     }
   }
+  let leadsShown = 40;
+  const queued = new Set();
   function leadsTable(list) {
     const table = document.getElementById("leads"); table.textContent = "";
-    if (!list.length) { const tr = node("tr", {}, table); node("td", { class: "empty" }, tr, "No new leads. Run: python -m jobhunt discover"); return; }
+    document.getElementById("leads-sub").textContent = `Best JD match first, from company job boards and remote job boards, posted in the last ${D.fresh_days} days. `
+      + `Places: remote in India${D.remote_abroad ? ", remote roles open to India" : ""}, then hybrid and office jobs in ${D.cities}.`;
+    if (!list.length) {
+      const tr = node("tr", {}, table);
+      node("td", { class: "empty" }, tr, SERVER ? "No new matches here. Click Find more jobs." : "No new matches. Run: python -m jobhunt discover");
+      return;
+    }
     const head = node("tr", {}, node("thead", {}, table));
-    ["Match", "Company / role", "Location", "Exp", "Keywords: have / gap", "Posted", "Next step"].forEach(h => node("th", { scope: "col" }, head, h));
+    ["JD match", "Company / role", "Where", "Posted", "Exp", "Keywords: have / gap", SERVER ? "" : "Next step"].forEach(h => node("th", { scope: "col" }, head, h));
     const body = node("tbody", {}, table);
-    for (const l of list.slice(0, 40)) {
+    for (const l of list.slice(0, leadsShown)) {
       const tr = node("tr", {}, body);
       const m = node("td", { class: "num" }, tr, `${l.score}%`); const b = node("div", { class: "bar" }, m); node("span", { style: `width:${l.score}%` }, b);
       const c = node("td", {}, tr); node("div", {}, c, l.company);
       const role = node("div", { class: "role" }, c);
       if (l.url && /^https?:\/\//.test(l.url)) node("a", { href: l.url, target: "_blank", rel: "noopener", style: "color:inherit" }, role, l.title);
       else role.textContent = l.title;
-      node("td", {}, tr, l.location);
+      const w = node("td", {}, tr);
+      node("span", { class: l.where_rank <= 1 ? "pill good" : "pill", title: l.location }, w, l.where || l.location || "–");
+      node("td", { class: "num" }, tr, l.posted ? (l.age === 0 ? "today" : `${l.age}d ago`) : "–");
       node("td", { class: "num" }, tr, l.exp || "–");
       chips(node("td", {}, tr), l.matched, l.missing);
-      node("td", { class: "num" }, tr, l.posted ? `${fmtDate(l.posted)} (${l.age}d)` : "–");
-      const n = node("td", {}, tr); node("code", {}, n, `python -m jobhunt apply --lead ${l.row}`);
+      const n = node("td", { class: SERVER ? "acts-cell" : "" }, tr);
+      if (!SERVER) { node("code", {}, n, `python -m jobhunt apply --lead ${l.row}`); continue; }
+      if (l.has_jd) node("a", { href: `leads/${l.row}/jd`, target: "_blank", rel: "noopener" }, n, "JD");
+      const t = node("button", { type: "button", class: "go", title: "Read the JD, tailor a one-page resume to it, and add it to Ready to apply" }, n,
+        queued.has(l.row) ? "Queued…" : "Tailor resume");
+      t.disabled = queued.has(l.row);
+      t.addEventListener("click", () => tailorLead(l));
+      const k = node("button", { type: "button", title: "Not interested: hide it" }, n, "Skip");
+      k.addEventListener("click", () => skipLead(l));
+    }
+    if (list.length > leadsShown) {
+      const tr = node("tr", {}, body), td = node("td", { colspan: "7" }, tr);
+      const more = node("button", { type: "button", class: "more" }, td, `Show ${Math.min(40, list.length - leadsShown)} more of ${list.length - leadsShown}`);
+      more.addEventListener("click", () => { leadsShown += 40; leadsTable(leads()); });
     }
   }
+
+  // ---------- find more jobs, tailor resumes (server mode) ----------
+  let taskTimer = null;
+  const seenDone = new Set();
+  async function tailorLead(l) {
+    queued.add(l.row); leadsTable(leads());
+    try { await post("/api/tailor", { row: l.row }); pollTasks(); }
+    catch (e) { queued.delete(l.row); leadsTable(leads()); taskNote(`Couldn't start: ${e.message}`, true); }
+  }
+  async function skipLead(l) {
+    try { await post(`/api/leads/${l.row}/skip`, {}); await reload(); }
+    catch (e) { taskNote(`Couldn't skip it: ${e.message}`, true); }
+  }
+  function taskNote(text, err) {
+    const n = document.getElementById("task-status");
+    n.hidden = false; n.textContent = text; n.className = "af-status" + (err ? " err" : "");
+  }
+  async function pollTasks() {
+    clearTimeout(taskTimer);
+    let j;
+    try { j = await (await fetch("/api/tasks", { cache: "no-store" })).json(); } catch (e) { return; }
+    const recent = (j.tasks || []).slice(-6).reverse();
+    const busy = recent.some(t => t.state === "queued" || t.state === "running");
+    document.getElementById("find-btn").disabled = recent.some(t => t.kind === "discover" && (t.state === "queued" || t.state === "running"));
+    const n = document.getElementById("task-status");
+    if (recent.length) {
+      n.hidden = false; n.textContent = ""; n.className = "af-status";
+      const ul = node("ul", { style: "margin:0" }, n);
+      for (const t of recent) {
+        const word = { queued: "Waiting", running: "Working", done: "Done", error: "Stopped" }[t.state];
+        node("li", { class: t.state === "error" ? "err" : "" }, ul, `${word}: ${t.label}. ${t.message}`);
+      }
+    }
+    let changed = false;
+    for (const t of j.tasks || []) if ((t.state === "done" || t.state === "error") && !seenDone.has(t.id)) { seenDone.add(t.id); changed = true; }
+    if (changed && !firstPoll) { queued.clear(); await reload(); }
+    firstPoll = false;
+    if (busy) taskTimer = setTimeout(pollTasks, 2000);
+  }
+  let firstPoll = true;
+  document.getElementById("find-btn").addEventListener("click", async () => {
+    try { await post("/api/discover", { wider: document.getElementById("wider").checked }); firstPoll = false; pollTasks(); }
+    catch (e) { taskNote(`Couldn't start the search: ${e.message}`, true); }
+  });
+  document.getElementById("add-form").addEventListener("submit", async e => {
+    e.preventDefault();
+    const body = { url: document.getElementById("add-url").value.trim(), company: document.getElementById("add-company").value.trim(),
+                   role: document.getElementById("add-role").value.trim(), jd: document.getElementById("add-jd").value.trim() };
+    try {
+      await post("/api/tailor", body);
+      document.getElementById("add-form").reset();
+      firstPoll = false; pollTasks();
+    } catch (err) { taskNote(err.message, true); }
+  });
+  document.getElementById("f-where").addEventListener("change", e => { state.where = e.target.value; leadsShown = 40; leadsTable(leads()); });
 
   // ---------- pipeline board ----------
   const boardNote = (text, err) => { const n = document.getElementById("board-note"); n.textContent = text; n.className = "board-note" + (err ? " err" : ""); };
@@ -603,6 +722,7 @@
     if (when) node("span", {}, m, fmtDate(when));
     if (followUp(a)) node("span", { class: "pill warn" }, m, "Follow up");
     if (!isSent(a)) agePill(m, a);
+    if (!isSent(a) && a.where && a.where_ok) node("span", { class: a.where.startsWith("Remote") ? "pill good" : "pill", title: "Where you'd work" }, m, a.where);
     if (a.flag === 9) node("span", { class: "pill crit", title: "Weak match on the job's must-haves" }, m, "Not recommended");
     if (a.size && a.size !== "size unknown") node("span", { class: a.size === "500-1,000" ? "pill active" : "pill",
       title: a.employees ? `About ${a.employees.toLocaleString("en-IN")} employees (rough public estimate)` : "" },
@@ -742,9 +862,13 @@
       document.getElementById("af-bar").hidden = false;
       document.getElementById("foot").textContent = "Live from tracker.xlsx: moves save there straight away. Autofill fills forms in a browser window; you check each one and click Submit. Stop the server with Ctrl+C in its terminal.";
       boardNote("Moves save to tracker.xlsx.");
+      document.getElementById("find-btn").hidden = false;
+      document.getElementById("wider-wrap").hidden = false;
+      document.getElementById("add-job").hidden = false;
       render();
       pollAutofill();
       pollVerify();
+      pollTasks();
       return;
     }
     if (typeof window.claude?.use !== "function") {

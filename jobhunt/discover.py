@@ -1,7 +1,10 @@
-"""Find openings that fit the profile, using the same sources as the Fresher Jobs India pipeline.
+"""Find openings that fit the profile: company job boards, remote job boards and Adzuna.
 
-Company ATS boards (Greenhouse, Lever, Ashby, SmartRecruiters; no key needed) plus Adzuna
-when ADZUNA_APP_ID/KEY are set, with experienced-role queries instead of fresher ones.
+Company ATS boards (Greenhouse, Lever, Ashby, SmartRecruiters; no key needed), the remote boards
+in jobhunt/sources.py (Remotive, Jobicy, Remote OK, Himalayas), plus Adzuna when
+ADZUNA_APP_ID/KEY are set, with experienced-role queries instead of fresher ones. Locations are
+ranked by jobhunt/locations.py: remote in India, remote open to India, then hybrid and office
+jobs in your preferred cities; everything else is left out.
 Each post is filtered (software role, not senior, not a fresher/intern post, at most
 `max_years` required, published in the last `max_age_days`, posted by the employer itself
 rather than a recruiter, and free of scam signs) and scored by keyword coverage against
@@ -17,6 +20,7 @@ from datetime import date
 from pathlib import Path
 
 from jobhunt.keywords import DOMAIN, slug, years_required
+from jobhunt.locations import classify, is_english
 from jobhunt.profile import Profile
 from jobhunt.tailor import keyword_coverage, pick_track
 
@@ -32,15 +36,25 @@ TRACK_LABELS = {"backend": "Backend", "fullstack": "Full Stack", "ai": "AI Engin
 
 # Boards on top of pipeline/sources/boards.py that hire experienced engineers in India. Kept here,
 # not in the pipeline, so the public fresher site is unchanged. Probed 26 Nov 2026 (India openings).
-EXTRA_GREENHOUSE = {"mongodb": "MongoDB", "databricks": "Databricks", "inmobi": "InMobi", "twilio": "Twilio",
+EXTRA_GREENHOUSE = {"nice": "NICE", "tracelinkinc": "TraceLink", "commvault": "Commvault", "pubmatic": "PubMatic", "wikimedia": "Wikimedia Foundation", "slice": "slice", "vercel": "Vercel",
+                    "cockroachlabs": "Cockroach Labs", "planetscale": "PlanetScale", "consensys": "Consensys",
+                    "mongodb": "MongoDB", "databricks": "Databricks", "inmobi": "InMobi", "twilio": "Twilio",
                     "truecaller": "Truecaller", "airbnb": "Airbnb", "purestorage": "Pure Storage", "fivetran": "Fivetran",
                     "toast": "Toast", "netskope": "Netskope", "agoda": "Agoda", "appian": "Appian", "zoominfo": "ZoomInfo",
                     "coinbase": "Coinbase", "sumologic": "Sumo Logic", "samsara": "Samsara", "newrelic": "New Relic",
                     "zenoti": "Zenoti", "cloudsek": "CloudSEK", "harnessinc": "Harness", "contentstack": "Contentstack"}
-EXTRA_LEVER = {"paytm": "Paytm", "hevodata": "Hevo Data", "mindtickle": "Mindtickle", "fampay": "FamPay",
+EXTRA_LEVER = {"spotify": "Spotify", "binance": "Binance", "paytm": "Paytm", "hevodata": "Hevo Data", "mindtickle": "Mindtickle", "fampay": "FamPay",
                "pocketfm": "Pocket FM", "acceldata": "Acceldata"}
-EXTRA_ASHBY: dict[str, str] = {"notion": "Notion", "spotdraft": "SpotDraft"}
-EXTRA_SMARTRECRUITERS = {"Freshworks": "Freshworks"}
+# Probed 27 Nov 2026: boards with India or remote software openings (remote ones are kept only if
+# they're open to India; see locations.py).
+EXTRA_ASHBY: dict[str, str] = {
+    "notion": "Notion", "spotdraft": "SpotDraft", "cursor": "Cursor", "replit": "Replit", "fireworks": "Fireworks AI",
+    "writer": "Writer", "vanta": "Vanta", "perplexity": "Perplexity", "workos": "WorkOS", "coder": "Coder",
+    "n8n": "n8n", "resend": "Resend", "linear": "Linear", "langchain": "LangChain", "railway": "Railway",
+    "airbyte": "Airbyte", "pinecone": "Pinecone", "posthog": "PostHog", "infisical": "Infisical", "zapier": "Zapier",
+    "knock": "Knock", "weaviate": "Weaviate", "neon": "Neon", "doppler": "Doppler", "inngest": "Inngest",
+}
+EXTRA_SMARTRECRUITERS = {"Freshworks": "Freshworks", "Continental": "Continental", "aristanetworks": "Arista Networks"}
 
 # Approximate total headcount (public estimates, 2025-26) so `discover --min-employees` can keep
 # established companies. Rough numbers: check LinkedIn before relying on one.
@@ -55,6 +69,12 @@ EMPLOYEES = {
     "Coinbase": 3500, "Sumo Logic": 900, "Samsara": 3000, "New Relic": 2500, "Freshworks": 4500, "Pocket FM": 1000,
     "Notion": 1000, "Zenoti": 1200, "CloudSEK": 300, "Harness": 1200, "Contentstack": 500, "Acceldata": 300,
     "SpotDraft": 200, "Akamai": 10000,
+    "PubMatic": 1000, "Wikimedia Foundation": 700, "slice": 1000, "Vercel": 600, "Cockroach Labs": 500,
+    "PlanetScale": 100, "Consensys": 800, "Spotify": 9000, "Binance": 7000, "Cursor": 300, "Replit": 200,
+    "Fireworks AI": 150, "Writer": 300, "Vanta": 800, "Perplexity": 250, "WorkOS": 150, "Coder": 150, "n8n": 200,
+    "Resend": 30, "Linear": 100, "LangChain": 150, "Railway": 50, "Airbyte": 200, "Pinecone": 150, "PostHog": 100,
+    "Infisical": 40, "Zapier": 800, "Knock": 50, "Weaviate": 150, "Neon": 150, "Doppler": 50, "Inngest": 40,
+    "Continental": 190000, "NICE": 8500, "TraceLink": 800, "Commvault": 3000, "Arista Networks": 4000,
 }
 
 
@@ -112,7 +132,8 @@ _SKIP_TITLE = re.compile(
 
 def score_post(profile: Profile, post, *, max_years: int = 4, title_filter: str | None = None,
                min_employees: int = 0, max_employees: int = 0, max_age_days: int = 0,
-               today: date | None = None) -> dict | None:
+               today: date | None = None, cities: str | None = None, remote_abroad: bool = True,
+               other_cities: bool = False) -> dict | None:
     """A Leads-sheet row for a post worth looking at, or None."""
     from pipeline.filters import looks_senior
     from pipeline.normalize import clean_title, html_to_text
@@ -134,7 +155,11 @@ def score_post(profile: Profile, post, *, max_years: int = 4, title_filter: str 
         if posted is None and post.source not in _EMPLOYER_SOURCES:
             return None  # an aggregator listing with no date can't be shown to be current
     desc = html_to_text(post.description or "")
-    if not looks_authentic(post, desc):
+    if not looks_authentic(post, desc) or not is_english(desc):
+        return None
+    # cities=None keeps every location (the Fresher Jobs India boards are India-only already).
+    where = classify(post.location or "", desc, cities, remote_abroad, other_cities) if cities is not None else None
+    if where is not None and not where.ok:
         return None
     years = years_required(desc)
     if years is not None and years > max_years:
@@ -158,6 +183,7 @@ def score_post(profile: Profile, post, *, max_years: int = 4, title_filter: str 
         "location": post.location,
         "exp": f"{years}+ yrs" if years is not None else "",
         "employees": EMPLOYEES.get(post.company),
+        "where": where.label if where else "", "where_rank": where.rank if where else 3,
         "score": score,
         "track": TRACK_LABELS[track],
         "matched": ", ".join(cov["matched"]),
@@ -170,37 +196,44 @@ def score_post(profile: Profile, post, *, max_years: int = 4, title_filter: str 
     }
 
 
-def fetch_posts(sources: list[str]) -> tuple[list, list[str]]:
-    """Run the pipeline's fetchers. Returns (posts, errors)."""
+ALL_SOURCES = "greenhouse,lever,ashby,smartrecruiters,remotive,jobicy,remoteok,himalayas,weworkremotely,workingnomads,adzuna"
+
+
+def fetch_posts(sources: list[str], cache_dir: Path | None = None, progress=None) -> tuple[list, list[str]]:
+    """Run the fetchers. Returns (posts, errors). `progress(name, i, n)` is called before each source."""
+    from jobhunt import sources as js
     from pipeline.sources.aggregators import AdzunaSource
     from pipeline.sources.base import make_client
-    from pipeline.sources.company_boards import AshbySource, GreenhouseSource, LeverSource, SmartRecruitersSource
 
     class DiscoverAdzuna(AdzunaSource):
         queries = DISCOVER_QUERIES
 
-    class Greenhouse(GreenhouseSource):
-        companies = {**GreenhouseSource.companies, **EXTRA_GREENHOUSE}
+    class Greenhouse(js.Greenhouse):
+        companies = {**js.Greenhouse.companies, **EXTRA_GREENHOUSE}
 
-    class Lever(LeverSource):
-        companies = {**LeverSource.companies, **EXTRA_LEVER}
+    class Lever(js.Lever):
+        companies = {**js.Lever.companies, **EXTRA_LEVER}
 
-    class Ashby(AshbySource):
-        companies = {**AshbySource.companies, **EXTRA_ASHBY}
+    class Ashby(js.Ashby):
+        companies = {**js.Ashby.companies, **EXTRA_ASHBY}
 
-    class SmartRecruiters(SmartRecruitersSource):
-        companies = {**SmartRecruitersSource.companies, **EXTRA_SMARTRECRUITERS}
+    class SmartRecruiters(js.SmartRecruiters):
+        companies = {**js.SmartRecruiters.companies, **EXTRA_SMARTRECRUITERS}
 
-    classes = {"greenhouse": Greenhouse, "lever": Lever, "ashby": Ashby,
-               "smartrecruiters": SmartRecruiters, "adzuna": DiscoverAdzuna}
+    classes = {"greenhouse": Greenhouse, "lever": Lever, "ashby": Ashby, "smartrecruiters": SmartRecruiters,
+               "remotive": js.Remotive, "jobicy": js.Jobicy, "remoteok": js.RemoteOK, "himalayas": js.Himalayas,
+               "weworkremotely": js.WeWorkRemotely, "workingnomads": js.WorkingNomads,
+               "adzuna": DiscoverAdzuna}
     posts, errors = [], []
     with make_client() as client:
-        for name in sources:
+        for i, name in enumerate(sources):
+            if progress:
+                progress(name, i, len(sources))
             cls = classes.get(name)
             if cls is None:
                 errors.append(f"unknown source {name}")
                 continue
-            src = cls(client)
+            src = cls(client, cache_dir) if issubclass(cls, js._RemoteBoard) else cls(client)
             if not src.enabled:
                 errors.append(f"{name}: skipped (no API key in .env)")
                 continue
@@ -234,18 +267,24 @@ def load_cache(path: Path, max_age_hours: float = 12) -> list | None:
 
 def discover(profile: Profile, posts: list, leads_dir: Path, *, max_years: int = 4, min_score: int = 35,
              title_filter: str | None = None, min_employees: int = 0, max_employees: int = 0,
-             max_age_days: int = 0) -> list[dict]:
+             max_age_days: int = 0, cities: str | None = None, remote_abroad: bool = True,
+             other_cities: bool = False) -> list[dict]:
     """Score posts, keep the good ones (best first) and save their descriptions for `apply --lead`."""
     rows, seen = [], set()
     for post in posts:
         row = score_post(profile, post, max_years=max_years, title_filter=title_filter, min_employees=min_employees,
-                         max_employees=max_employees, max_age_days=max_age_days)
-        if row is None or row["score"] < min_score or row["url"] in seen:
+                         max_employees=max_employees, max_age_days=max_age_days, cities=cities,
+                         remote_abroad=remote_abroad, other_cities=other_cities)
+        if row is None or row["score"] < min_score:
             continue
-        seen.add(row["url"])
+        # The same job is often on the company's board and on a remote board: keep the first.
+        same = (row["company"].lower().strip(), row["title"].lower().strip())
+        if row["url"] in seen or same in seen:
+            continue
+        seen.update({row["url"], same})
         rows.append(row)
-    # Best match first; among equal scores, the newest posting first.
-    rows.sort(key=lambda r: (r["score"], r["posted"] or date.min), reverse=True)
+    # Best JD match first; then your preferred kind of location; then the newest posting.
+    rows.sort(key=lambda r: (-r["score"], r["where_rank"], -(r["posted"] or date.min).toordinal()))
     leads_dir.mkdir(parents=True, exist_ok=True)
     for row in rows:
         (leads_dir / f"{slug(row['key'], 80)}.txt").write_text(row["description"], encoding="utf-8")
@@ -255,3 +294,41 @@ def discover(profile: Profile, posts: list, leads_dir: Path, *, max_years: int =
 def lead_description(leads_dir: Path, key: str) -> str:
     path = leads_dir / f"{slug(key, 80)}.txt"
     return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
+SOURCE_LABELS = {"greenhouse": "company boards on Greenhouse", "lever": "company boards on Lever",
+                 "ashby": "company boards on Ashby", "smartrecruiters": "company boards on SmartRecruiters",
+                 "remotive": "Remotive (remote jobs)", "jobicy": "Jobicy (remote jobs)", "remoteok": "Remote OK",
+                 "himalayas": "Himalayas (remote jobs)", "weworkremotely": "We Work Remotely",
+                 "workingnomads": "Working Nomads", "adzuna": "Adzuna (India job ads)"}
+
+
+def run_discover(settings, *, sources: str = ALL_SOURCES, cached: bool = False, max_age_days: int | None = None,
+                 max_years: int = 4, min_score: int = 35, limit: int = 200, title_filter: str | None = None,
+                 min_employees: int = 0, max_employees: int = 0, lock=None, progress=None, wider: bool = False) -> dict:
+    """Fetch (or reuse the last fetch), score, and add new matches to the Leads sheet.
+
+    `wider` also takes jobs up to STALE_JOB_DAYS old and in other Indian cities (ranked last)."""
+    from contextlib import nullcontext
+
+    from jobhunt.profile import load_profile
+    from jobhunt.tracker import Tracker
+
+    profile = load_profile(settings.profile_path)
+    cache = settings.data_dir / "posts_cache.json"
+    posts = load_cache(cache) if cached else None
+    errors: list[str] = []
+    if posts is None:
+        posts, errors = fetch_posts([x.strip() for x in sources.split(",") if x.strip()],
+                                    cache_dir=settings.data_dir / "board_cache", progress=progress)
+        save_cache(posts, cache)
+    max_age = (settings.stale_job_days if wider else settings.fresh_job_days) if max_age_days is None else max_age_days
+    rows = discover(profile, posts, settings.data_dir / "leads", max_years=max_years, min_score=min_score,
+                    title_filter=title_filter, min_employees=min_employees, max_employees=max_employees,
+                    max_age_days=max_age, cities=settings.preferred_cities, remote_abroad=settings.remote_abroad,
+                    other_cities=wider)
+    with lock or nullcontext():
+        t = Tracker(settings.tracker_path)
+        added = t.add_leads(rows[:limit])
+        t.save()
+    return {"posts": len(posts), "rows": rows, "added": added, "errors": errors, "max_age": max_age}

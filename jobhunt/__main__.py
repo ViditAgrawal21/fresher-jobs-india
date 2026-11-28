@@ -13,6 +13,7 @@
   dashboard    build the HTML dashboard: funnel, weekly targets, skills in demand, every resume
   serve        the dashboard on http://127.0.0.1:8765: board moves save to the tracker, autofill buttons
   autofill     fill application forms in a browser window for you to check and submit
+  export-bundle / import-bundle   move applications and job matches between computers
 """
 
 from __future__ import annotations
@@ -241,35 +242,25 @@ def cmd_sync_mail(args, s) -> None:
 
 
 def cmd_discover(args, s) -> None:
-    from jobhunt.discover import discover, fetch_posts
-    from jobhunt.profile import load_profile
+    from jobhunt.discover import SOURCE_LABELS, run_discover
 
-    profile = load_profile(s.profile_path)
-    sources = [x.strip() for x in args.sources.split(",") if x.strip()]
-    from jobhunt.discover import load_cache, save_cache
-
-    cache = s.data_dir / "posts_cache.json"
-    posts = load_cache(cache) if args.cached else None
-    if posts is not None:
-        print(f"Re-scoring {len(posts)} posts fetched in the last 12 hours (drop --cached to refetch)...")
+    if args.cached:
+        print("Re-scoring the posts fetched in the last 12 hours (drop --cached to refetch)...")
     else:
-        print(f"Fetching from {', '.join(sources)} (takes a few minutes; Lever is slow)...")
-        posts, errors = fetch_posts(sources)
-        for e in errors:
-            print(f"  warning: {e}")
-        save_cache(posts, cache)
-    max_age = s.fresh_job_days if args.max_age_days is None else args.max_age_days
-    rows = discover(profile, posts, s.data_dir / "leads", max_years=args.max_years, min_score=args.min_score,
-                    title_filter=args.title, min_employees=args.min_employees, max_employees=args.max_employees,
-                    max_age_days=max_age)
-    t = Tracker(s.tracker_path)
-    added = t.add_leads(rows[: args.limit])
-    t.save()
-    print(f"{len(posts)} posts fetched, {len(rows)} match (posted in the last {max_age} days, by the employer), "
-          f"{added} new added to the Leads sheet.")
-    for r in rows[:10]:
-        age = f"posted {(date.today() - r['posted']).days}d ago" if r["posted"] else "date not given"
-        print(f"  {r['score']:3}  {r['company']} / {r['title']}  ({r['exp'] or 'exp not stated'}; {age})")
+        print("Searching company job boards and remote job boards (takes a few minutes; Lever is slow)...")
+    out = run_discover(s, sources=args.sources, cached=args.cached, max_age_days=args.max_age_days,
+                       max_years=args.max_years, min_score=args.min_score, limit=args.limit, title_filter=args.title,
+                       min_employees=args.min_employees, max_employees=args.max_employees, wider=args.wider,
+                       progress=lambda name, i, n: print(f"  {i + 1}/{n} {SOURCE_LABELS.get(name, name)}"))
+    for e in out["errors"]:
+        print(f"  warning: {e}")
+    rows = out["rows"]
+    print(f"{out['posts']} jobs checked; {len(rows)} match your profile, posted in the last {out['max_age']} days, "
+          f"in your locations ({s.preferred_cities}{', or remote' if s.remote_abroad else ''}); "
+          f"{out['added']} new added to the Leads sheet.")
+    for r in rows[:15]:
+        age = f"{(date.today() - r['posted']).days}d ago" if r["posted"] else "date not given"
+        print(f"  {r['score']:3}  {r['company']} / {r['title']}  [{r['where']}; {r['exp'] or 'exp not stated'}; {age}]")
 
 
 def cmd_verify(args, s) -> None:
@@ -345,6 +336,30 @@ def cmd_autofill(args, s) -> None:
     print(session.message)
 
 
+def cmd_export_bundle(args, s) -> None:
+    from jobhunt.bundle import export_bundle
+
+    try:
+        out = export_bundle(s, [i.upper() for i in args.ids], args.leads or [], Path(args.out))
+    except KeyError as exc:
+        _fail(str(exc))
+    print(f"{out['path']}: {out['apps']} application(s), {out['leads']} job match(es)")
+
+
+def cmd_import_bundle(args, s) -> None:
+    from jobhunt.bundle import import_bundle
+
+    try:
+        out = import_bundle(s, Path(args.file))
+    except (ValueError, KeyError, RuntimeError) as exc:
+        _fail(str(exc))
+    for old, new, company, role in out["added"]:
+        print(f"  + {new}  {company} / {role}  (was {old})")
+    for line in out["skipped"]:
+        print(f"  - skipped {line}")
+    print(f"{len(out['added'])} application(s) added to Ready to apply, {out['leads']} new job match(es).")
+
+
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
     p = argparse.ArgumentParser(prog="python -m jobhunt", description=__doc__,
@@ -398,7 +413,9 @@ def main(argv: list[str] | None = None) -> None:
                    help="don't create rows for 'application received' emails about untracked jobs")
 
     a = sub.add_parser("discover", help="find matching openings")
-    a.add_argument("--sources", default="greenhouse,lever,ashby,smartrecruiters,adzuna")
+    a.add_argument("--sources", default="greenhouse,lever,ashby,smartrecruiters,remotive,jobicy,remoteok,himalayas,"
+                                        "weworkremotely,workingnomads,adzuna")
+    a.add_argument("--wider", action="store_true", help="also jobs up to STALE_JOB_DAYS old and in other Indian cities")
     a.add_argument("--max-years", type=int, default=4)
     a.add_argument("--min-score", type=int, default=35)
     a.add_argument("--limit", type=int, default=150)
@@ -417,6 +434,14 @@ def main(argv: list[str] | None = None) -> None:
     a = sub.add_parser("dashboard", help="build the HTML dashboard (jobhunt/data/dashboard.html)")
     a.add_argument("--open", action="store_true", help="open it in your browser")
 
+    a = sub.add_parser("export-bundle", help="pack applications and job matches into a zip for another computer")
+    a.add_argument("ids", nargs="*", help="application IDs")
+    a.add_argument("--leads", type=int, nargs="*", help="Leads sheet row numbers")
+    a.add_argument("--out", required=True)
+
+    a = sub.add_parser("import-bundle", help="add the applications and job matches in a bundle zip to your tracker")
+    a.add_argument("file")
+
     a = sub.add_parser("serve", help="run the dashboard on localhost, with saving and autofill")
     a.add_argument("--port", type=int, default=8765)
     a.add_argument("--no-open", action="store_true", help="don't open the browser")
@@ -433,7 +458,8 @@ def main(argv: list[str] | None = None) -> None:
     {"init": cmd_init, "resume": cmd_resume, "apply": cmd_apply, "applied": cmd_applied, "status": cmd_status,
      "list": cmd_list, "followups": cmd_followups, "sync-mail": cmd_sync_mail, "discover": cmd_discover,
      "dashboard": cmd_dashboard, "import-status": cmd_import_status, "serve": cmd_serve, "verify": cmd_verify,
-     "autofill": cmd_autofill}[args.cmd](args, s)
+     "autofill": cmd_autofill,
+     "export-bundle": cmd_export_bundle, "import-bundle": cmd_import_bundle}[args.cmd](args, s)
 
 
 if __name__ == "__main__":

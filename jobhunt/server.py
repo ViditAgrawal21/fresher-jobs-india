@@ -5,6 +5,9 @@ Unlike the static dashboard.html, this page:
 - opens each tailored resume, report and job description;
 - checks every Ready job is still open on the company's own job board (on start, once a
   day, and from the "Check jobs are still open" button), and skips closed jobs;
+- finds more jobs ("Find more jobs": company and remote job boards, ranked by how well the JD
+  matches your profile and by your location preferences), and tailors a resume to any match or
+  to a job you add by its link;
 - runs autofill, either for one job (the Autofill button on a Ready card) or for the top N
   fresh ready jobs. A browser window opens with one tab per job and the form filled in. You check
   each form and click Submit yourself; a thank-you page marks the job Submitted.
@@ -16,8 +19,10 @@ your network or in another browser tab can read or change the tracker.
 from __future__ import annotations
 
 import logging
+import queue
 import socket
 import threading
+from dataclasses import dataclass, field
 from datetime import date
 
 from fastapi import FastAPI, HTTPException, Request
@@ -42,6 +47,36 @@ class Move(BaseModel):
     note: str = Field("", max_length=300)
 
 
+class TailorRequest(BaseModel):
+    """A lead row from "New job matches", or a job you add: its link, and/or its pasted description."""
+
+    row: int | None = Field(None, ge=2)
+    url: str = Field("", max_length=2000)
+    company: str = Field("", max_length=120)
+    role: str = Field("", max_length=200)
+    jd: str = Field("", max_length=60000)
+
+
+@dataclass
+class Task:
+    """One background job the page shows: a search for more jobs, or tailoring one resume."""
+
+    id: int
+    kind: str                       # discover | tailor
+    label: str
+    state: str = "queued"           # queued | running | done | error
+    message: str = ""
+    app_id: str = ""
+
+    def status(self) -> dict:
+        return {"id": self.id, "kind": self.kind, "label": self.label, "state": self.state,
+                "message": self.message, "app_id": self.app_id}
+
+
+class DiscoverRequest(BaseModel):
+    wider: bool = False  # also jobs up to STALE_JOB_DAYS old, and other Indian cities
+
+
 class AutofillRequest(BaseModel):
     ids: list[str] = Field(default_factory=list, max_length=10)
     all_ready: bool = False
@@ -49,14 +84,25 @@ class AutofillRequest(BaseModel):
 
 
 def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PORT, checker=None,
-               check_on_start: bool = False) -> FastAPI:
-    """`runner` replaces autofill.run and `checker` verify.verify_applications in tests."""
+               check_on_start: bool = False, finder=None, tailorer=None) -> FastAPI:
+    """`runner`, `checker`, `finder` and `tailorer` replace autofill.run, verify.verify_applications,
+    discover.run_discover and tailor_job in tests."""
     app = FastAPI(title="jobhunt", docs_url=None, redoc_url=None, openapi_url=None)
     lock = threading.Lock()  # one reader/writer of tracker.xlsx at a time
     job: dict = {"session": None, "thread": None}
     runner = runner or autofill.run
     checker = checker or verify.verify_applications
     vjob = {"job": verify.VerifyJob(), "thread": None}
+    tasks: list[Task] = []
+    work: queue.Queue = queue.Queue()  # tailoring runs one at a time, in the order you click
+    worker: dict = {"thread": None}
+
+    def finder_default(progress, wider=False):
+        from jobhunt.discover import run_discover
+        return run_discover(settings, lock=lock, progress=progress, wider=wider)
+
+    finder = finder or finder_default
+    tailorer = tailorer or (lambda req, task: tailor_job(settings, req, task, lock))
     files_root = (settings.data_dir / "applications").resolve()
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}", "testserver"}
 
@@ -140,6 +186,106 @@ def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PO
     if check_on_start and _needs_check(settings):
         start_check()
 
+    # ---------- find more jobs / tailor a resume ----------
+    def new_task(kind: str, label: str) -> Task:
+        t = Task(id=len(tasks) + 1, kind=kind, label=label)
+        tasks.append(t)
+        del tasks[:-30]
+        return t
+
+    @app.post("/api/discover")
+    def discover_start(req: DiscoverRequest | None = None):
+        wider = bool(req and req.wider)
+        running = next((t for t in tasks if t.kind == "discover" and t.state in ("queued", "running")), None)
+        if running:
+            return running.status()
+        task = new_task("discover", "Find more jobs (wider search)" if wider else "Find more jobs")
+
+        def run():
+            from jobhunt.discover import SOURCE_LABELS
+
+            task.state, task.message = "running", "Starting the search…"
+            try:
+                out = finder(lambda name, i, n: setattr(task, "message",
+                                                         f"Searching {SOURCE_LABELS.get(name, name)} ({i + 1} of {n})…"),
+                             wider=wider)
+                task.message = (f"Checked {out['posts']} jobs: {len(out['rows'])} match your profile and locations, "
+                                f"{out['added']} new below.")
+                task.state = "done"
+            except Exception as exc:
+                task.state, task.message = "error", f"The search stopped: {str(exc).splitlines()[0] if str(exc) else type(exc).__name__}"
+                log.exception("discover failed")
+
+        threading.Thread(target=run, daemon=True, name="discover").start()
+        return task.status()
+
+    def tailor_worker():
+        while True:
+            req, task = work.get()
+            task.state, task.message = "running", "Reading the job description…"
+            try:
+                tailorer(req, task)
+                task.state = "done"
+            except Exception as exc:
+                task.state = "error"
+                task.message = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+                log.warning("tailoring failed: %s", exc)
+            finally:
+                work.task_done()
+
+    @app.post("/api/tailor")
+    def tailor_start(req: TailorRequest):
+        if req.row is None and not req.url.strip() and len(req.jd.strip()) < 200:
+            raise HTTPException(400, "Paste the job's link, or its full description.")
+        if req.row is not None:
+            with lock:
+                try:
+                    lead = Tracker(settings.tracker_path).lead(req.row)
+                except KeyError as exc:
+                    raise HTTPException(404, "That match isn't on the Leads sheet any more.") from exc
+            label = f"{lead['company']}: {lead['title']}"
+        else:
+            label = " ".join(x for x in (req.company, req.role) if x) or req.url.strip()[:80] or "Pasted job"
+        task = new_task("tailor", label)
+        work.put((req, task))
+        if worker["thread"] is None or not worker["thread"].is_alive():
+            worker["thread"] = threading.Thread(target=tailor_worker, daemon=True, name="tailor")
+            worker["thread"].start()
+        return task.status()
+
+    @app.get("/api/tasks")
+    def tasks_status():
+        return {"tasks": [t.status() for t in tasks]}
+
+    @app.post("/api/leads/{row}/skip")
+    def lead_skip(row: int):
+        with lock:
+            t = Tracker(settings.tracker_path)
+            try:
+                t.lead(row)
+            except KeyError as exc:
+                raise HTTPException(404, "No such match") from exc
+            t.set_lead_decision(row, "Skip")
+            try:
+                t.save()
+            except RuntimeError as exc:
+                raise HTTPException(423, str(exc)) from exc
+        return {"ok": True}
+
+    @app.get("/leads/{row}/jd")
+    def lead_jd(row: int):
+        from jobhunt.discover import lead_description
+
+        try:
+            lead = Tracker(settings.tracker_path).lead(row)
+        except KeyError as exc:
+            raise HTTPException(404, "Not found") from exc
+        text = lead_description(settings.data_dir / "leads", str(lead["key"]))
+        if not text:
+            raise HTTPException(404, "No saved description for this job")
+        head = f"{lead['company']}: {lead['title']}\n{lead['location'] or ''}\n{lead['url'] or ''}\n\n"
+        return Response(head + text, media_type="text/plain; charset=utf-8", headers={"Cache-Control": "no-store"})
+
     @app.get("/api/autofill")
     def autofill_status():
         s = job["session"]
@@ -199,6 +345,55 @@ def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PO
                             content_disposition_type="inline", headers={"Cache-Control": "no-store"})
 
     return app
+
+
+def tailor_job(settings: JobhuntSettings, req: TailorRequest, task: Task, lock: threading.Lock) -> None:
+    """Get the JD (saved with the lead, fetched from the link, or pasted), tailor a resume to it and
+    add it to Ready to apply. Claude does the tailoring when ANTHROPIC_API_KEY is set; otherwise it's
+    keyword-based."""
+    from jobhunt.apply import prepare_application
+    from jobhunt.discover import lead_description
+    from jobhunt.fetch_jd import fetch_job
+    from jobhunt.locations import classify
+
+    job = {"company": req.company.strip(), "role": req.role.strip(), "location": "", "jd": req.jd.strip(),
+           "posted": None, "url": req.url.strip(), "source": "Company site"}
+    if req.row is not None:
+        with lock:
+            lead = Tracker(settings.tracker_path).lead(req.row)
+        job.update(company=lead["company"], role=lead["title"], location=lead["location"] or "", url=lead["url"] or "",
+                   jd=lead_description(settings.data_dir / "leads", str(lead["key"])), source=str(lead["source"] or "").title(),
+                   posted=lead["posted"].date() if hasattr(lead["posted"], "date") else lead["posted"])
+        if not job["jd"]:
+            got = fetch_job(job["url"], str(lead["key"] or ""))
+            job["jd"] = got["jd"]
+    elif job["url"] and len(job["jd"]) < 200:
+        got = fetch_job(job["url"])
+        job.update(jd=got["jd"], posted=got["posted"], location=got["location"],
+                   company=job["company"] or got["company"], role=job["role"] or got["role"])
+    if not job["company"] or not job["role"]:
+        raise ValueError("Add the company name and the job title, then try again.")
+    where = classify(job["location"], job["jd"], settings.preferred_cities, settings.remote_abroad) if job["location"] else None
+    task.label = f"{job['company']}: {job['role']}"
+    task.message = ("Tailoring your resume to the JD with Claude…" if settings.anthropic_api_key
+                    else "Tailoring your resume to the JD (keyword matching; add ANTHROPIC_API_KEY for Claude)…")
+    out = prepare_application(settings, jd=job["jd"], company=job["company"], role=job["role"], url=job["url"],
+                              location=job["location"], source=job["source"], offline=not settings.anthropic_api_key,
+                              lock=lock)
+    with lock:
+        t = Tracker(settings.tracker_path)
+        values = {"posting": "Open", "checked": date.today()}
+        if job["posted"]:
+            values["posted"] = job["posted"]
+        t.update(out["id"], **values)
+        if req.row is not None:
+            t.set_lead_decision(req.row, "Apply")
+        t.save()
+    fit = out["result"].tailoring.fit
+    task.app_id = out["id"]
+    task.message = (f"{out['id']} is in Ready to apply: fit {fit.score}/100, JD keyword match "
+                    f"{out['result'].keyword_coverage['coverage_pct']}%"
+                    + (f", {where.label}" if where and where.ok else "") + ".")
 
 
 def _needs_check(settings: JobhuntSettings) -> bool:
