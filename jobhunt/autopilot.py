@@ -3,6 +3,8 @@
   - checks Gmail for replies every AUTOPILOT_MAIL_HOURS (2);
   - checks every Ready job is still open every AUTOPILOT_VERIFY_HOURS (12);
   - searches for new jobs every AUTOPILOT_DISCOVER_HOURS (24);
+  - drafts follow-up emails in Gmail Drafts for applications with no reply after 7 days, every
+    AUTOPILOT_FOLLOWUP_HOURS (24); you read and send them;
   - after each search, tailors a resume for the best new matches, up to AUTO_TAILOR_PER_DAY (5)
     a day: JD match of at least AUTO_TAILOR_MIN_SCORE (70)%, posted in the last FRESH_JOB_DAYS,
     in your places (remote India, remote open to India, your cities). They appear in Ready to
@@ -26,10 +28,12 @@ log = logging.getLogger(__name__)
 
 
 class Autopilot:
-    def __init__(self, settings: JobhuntSettings, *, start_mail, start_check, start_discover, queue_tailor):
+    def __init__(self, settings: JobhuntSettings, *, start_mail, start_check, start_discover, queue_tailor,
+                 start_followups=None):
         self.settings = settings
         self.path = settings.data_dir / "autopilot.json"
-        self.start = {"mail": start_mail, "verify": start_check, "discover": start_discover}
+        self.start = {"mail": start_mail, "verify": start_check, "discover": start_discover,
+                      "followups": start_followups or (lambda: False)}
         self.queue_tailor = queue_tailor
         self.lock = threading.Lock()
         self.state = {"on": True, "last": {}, "tailored": {"day": "", "count": 0}, "log": []}
@@ -43,7 +47,7 @@ class Autopilot:
     def hours(self, kind: str) -> float:
         s = self.settings
         return {"mail": s.autopilot_mail_hours, "verify": s.autopilot_verify_hours,
-                "discover": s.autopilot_discover_hours}[kind]
+                "discover": s.autopilot_discover_hours, "followups": s.autopilot_followup_hours}[kind]
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -64,7 +68,7 @@ class Autopilot:
         with self.lock:
             if not self.state.get("on"):
                 return []
-            for kind in ("mail", "verify", "discover"):
+            for kind in ("mail", "verify", "discover", "followups"):
                 hours = self.hours(kind)
                 if hours <= 0:
                     continue
@@ -79,7 +83,7 @@ class Autopilot:
                     continue
                 self.state["last"][kind] = now
                 self._note({"mail": "checked email", "verify": "checked jobs are still open",
-                            "discover": "searched for new jobs"}[kind], now)
+                            "discover": "searched for new jobs", "followups": "drafted follow-ups"}[kind], now)
                 started.append(kind)
             if started:
                 self._save()
@@ -114,13 +118,14 @@ class Autopilot:
         now = now or time.time()
         s = self.settings
         nxt = {}
-        for kind in ("mail", "verify", "discover"):
+        for kind in ("mail", "verify", "discover", "followups"):
             last = self.state["last"].get(kind)
             nxt[kind] = datetime.fromtimestamp(last + self.hours(kind) * 3600).strftime("%d %b %H:%M") if last else "soon"
         return {"on": bool(self.state.get("on")), "next": nxt, "log": list(reversed(self.state.get("log", [])))[:6],
                 "tailored_today": self.state["tailored"]["count"] if self.state["tailored"].get("day") == date.today().isoformat() else 0,
                 "plan": {"mail_hours": s.autopilot_mail_hours, "verify_hours": s.autopilot_verify_hours,
-                         "discover_hours": s.autopilot_discover_hours, "tailor_per_day": s.auto_tailor_per_day,
+                         "discover_hours": s.autopilot_discover_hours, "followup_hours": s.autopilot_followup_hours,
+                         "tailor_per_day": s.auto_tailor_per_day,
                          "tailor_min_score": s.auto_tailor_min_score}}
 
     def run_forever(self, every_s: int = 60) -> None:

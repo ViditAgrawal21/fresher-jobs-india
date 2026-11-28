@@ -52,6 +52,7 @@ class JobhuntSettings(BaseSettings):
     autopilot_mail_hours: float = 2
     autopilot_verify_hours: float = 12
     autopilot_discover_hours: float = 24
+    autopilot_followup_hours: float = 24   # draft follow-ups in Gmail for applications with no reply
     auto_tailor_per_day: int = 5
     auto_tailor_min_score: int = 70
 

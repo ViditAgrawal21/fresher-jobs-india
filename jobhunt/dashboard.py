@@ -21,6 +21,7 @@ from jobhunt.profile import load_profile
 from jobhunt.settings import JobhuntSettings
 from jobhunt.tailor import keyword_coverage
 from jobhunt.tracker import WEEK_TARGETS, Tracker
+from jobhunt.prep import prep_path
 from jobhunt.verify import freshness
 
 _env = Environment(loader=FileSystemLoader(Path(__file__).parent / "templates"), autoescape=True)
@@ -134,6 +135,7 @@ def build_data(settings: JobhuntSettings, today: date | None = None) -> dict:
                     {"fresh": 0, "aging": 100, "unknown": 100, "old": 200}[fresh] + 10 * where_rank + size_rank,
             "where": where.label if where else "", "where_ok": bool(where and where.ok),
             "resume": str(a["resume"]).replace("\\", "/") if a["resume"] and (data_dir / str(a["resume"])).exists() else None,
+            "prep": f"prep/{a['id']}" if prep_path(settings, a.values) else None,
             "report": rel("report.md"), "jd": rel("job_description.txt"),
         })
 

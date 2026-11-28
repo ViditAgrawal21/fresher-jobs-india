@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 
 from jobhunt import autofill, verify
 from jobhunt.dashboard import build_data, render
+from jobhunt.prep import PREP_STAGES
 from jobhunt.settings import JobhuntSettings
 from jobhunt.tracker import Tracker
 
@@ -163,6 +164,8 @@ def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PO
                     t.save()
                 except RuntimeError as exc:  # tracker.xlsx is open in Excel (Windows locks it)
                     raise HTTPException(423, str(exc)) from exc
+        if changed and m.status in PREP_STAGES:
+            start_prep(m.id.upper())
         return {"ok": True, "changed": changed}
 
     def start_check() -> verify.VerifyJob:
@@ -217,6 +220,9 @@ def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PO
             try:
                 out = mailer_fn()
                 rep_ = out["report"]
+                for ch in rep_.changes:
+                    if ch.new_status in PREP_STAGES:
+                        start_prep(str(ch.app_id))
                 mail.update(state="done", changes=len(rep_.changes), added=len(rep_.added),
                             message=(f"Checked job emails since {out['since']:%d %b}: {len(out['mails'])} new, "
                                      f"{len(rep_.changes)} matched your applications"
@@ -253,6 +259,89 @@ def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PO
         dismiss_review(settings, req.message_id)
         return {"ok": True}
 
+    # ---------- interview prep sheets ----------
+    def start_prep(app_id: str, force: bool = False) -> Task | None:
+        from jobhunt.prep import make_prep, prep_path
+
+        with lock:
+            row = Tracker(settings.tracker_path).find(app_id)
+        if row is None:
+            return None
+        if not force and prep_path(settings, row.values):
+            return None  # already has one
+        if any(t.kind == "prep" and t.label.startswith(f"{row['id']} ") and t.state in ("queued", "running") for t in tasks):
+            return None
+        task = new_task("prep", f"{row['id']} {row['company']}: interview prep sheet")
+
+        def run():
+            task.state, task.message = "running", ("Writing it with Claude…" if settings.anthropic_api_key
+                                                   else "Building it from the question bank…")
+            try:
+                make_prep(settings, row["id"], lock=lock)
+                task.state, task.message = "done", "Ready: open Prep sheet on its card."
+            except Exception as exc:
+                task.state, task.message = "error", str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+                log.warning("prep failed: %s", exc)
+
+        threading.Thread(target=run, daemon=True, name="prep").start()
+        return task
+
+    @app.post("/api/prep/{app_id}")
+    def prep_make(app_id: str):
+        task = start_prep(app_id.upper(), force=True)
+        if task is None:
+            raise HTTPException(404, "No such application, or its prep sheet is already being written.")
+        return task.status()
+
+    @app.get("/prep/{app_id}", response_class=HTMLResponse)
+    def prep_page(app_id: str):
+        from jobhunt.prep import markdown_to_html, prep_path
+
+        row = Tracker(settings.tracker_path).find(app_id)
+        path = prep_path(settings, row.values) if row else None
+        if path is None:
+            raise HTTPException(404, "No prep sheet yet")
+        return HTMLResponse(markdown_to_html(path.read_text(encoding="utf-8"), f"Prep: {row['company']}"),
+                            headers={"Cache-Control": "no-store"})
+
+    # ---------- follow-up drafts in Gmail ----------
+    fup = {"state": "idle", "message": "", "thread": None}
+
+    def start_followups():
+        from jobhunt.followup import create_drafts
+
+        if not all(settings.gmail_login):
+            return False
+        if fup["thread"] is not None and fup["thread"].is_alive():
+            return None
+
+        def run():
+            fup.update(state="running", message="Writing follow-up drafts in Gmail…")
+            try:
+                done = create_drafts(settings, lock=lock)
+                fup.update(state="done", message=(f"{len(done)} follow-up draft(s) are in your Gmail Drafts: "
+                                                  + ", ".join(f"{d['id']} {d['company']}" for d in done) + ". Read and send them."
+                                                  if done else "No follow-ups due."))
+            except Exception as exc:
+                fup.update(state="error", message=str(exc).splitlines()[0] if str(exc) else type(exc).__name__)
+
+        fup["thread"] = threading.Thread(target=run, daemon=True, name="followups")
+        fup["thread"].start()
+        return None
+
+    @app.get("/api/followups")
+    def followups_status():
+        from jobhunt.followup import due
+
+        return {"state": fup["state"], "message": fup["message"], "due": len(due(settings)),
+                "configured": all(settings.gmail_login)}
+
+    @app.post("/api/followups")
+    def followups_start():
+        if start_followups() is False:
+            raise HTTPException(400, "Add GMAIL_APP_PASSWORD to .env (and restart) to draft follow-ups in Gmail.")
+        return followups_status()
+
     @app.get("/api/report.xlsx")
     def report_download():
         from jobhunt.report import build_report
@@ -284,7 +373,7 @@ def create_app(settings: JobhuntSettings, *, runner=None, port: int = DEFAULT_PO
 
     pilot = Autopilot(settings, start_mail=lambda: start_mail() if all(settings.gmail_login) else False,
                       start_check=start_check, start_discover=lambda: start_discover(label="Find more jobs (autopilot)"),
-                      queue_tailor=pilot_tailor)
+                      queue_tailor=pilot_tailor, start_followups=start_followups)
 
     @app.get("/api/autopilot")
     def autopilot_status():

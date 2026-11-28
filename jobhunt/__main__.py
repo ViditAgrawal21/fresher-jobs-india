@@ -185,6 +185,17 @@ def cmd_list(args, s) -> None:
 
 
 def cmd_followups(args, s) -> None:
+    if args.drafts:
+        from jobhunt.followup import create_drafts
+
+        try:
+            done = create_drafts(s)
+        except RuntimeError as exc:
+            _fail(str(exc))
+        for d in done:
+            print(f"  drafted: {d['id']} {d['company']} / {d['role']}" + (f" -> {d['to']}" if d["to"] else " (add the recipient)"))
+        print(f"{len(done)} follow-up draft(s) in Gmail Drafts. Read and send them." if done else "No follow-ups due.")
+        return
     t = Tracker(s.tracker_path)
     due = t.followups(args.days or s.followup_after_days)
     if not due:
@@ -365,6 +376,16 @@ def cmd_import_bundle(args, s) -> None:
     print(f"{len(out['added'])} application(s) added to Ready to apply, {out['leads']} new job match(es).")
 
 
+def cmd_prep(args, s) -> None:
+    from jobhunt.prep import make_prep
+
+    try:
+        path = make_prep(s, args.id.upper(), use_claude=False if args.offline else None)
+    except KeyError as exc:
+        _fail(str(exc).strip("'\""))
+    print(f"Interview prep sheet: {path.resolve()}")
+
+
 def cmd_report(args, s) -> None:
     from jobhunt.report import write_report
 
@@ -462,6 +483,11 @@ def main(argv: list[str] | None = None) -> None:
 
     a = sub.add_parser("followups", help="applications that need a nudge")
     a.add_argument("--days", type=int)
+    a.add_argument("--drafts", action="store_true", help="write follow-up emails into your Gmail Drafts (nothing is sent)")
+
+    a = sub.add_parser("prep", help="write an interview prep sheet for an application")
+    a.add_argument("id")
+    a.add_argument("--offline", action="store_true", help="use the built-in question bank, not Claude")
 
     a = sub.add_parser("sync-mail", help="read Gmail and update the tracker")
     a.add_argument("--since", help="YYYY-MM-DD, default: last sync")
@@ -526,7 +552,7 @@ def main(argv: list[str] | None = None) -> None:
      "dashboard": cmd_dashboard, "import-status": cmd_import_status, "serve": cmd_serve, "verify": cmd_verify,
      "autofill": cmd_autofill,
      "export-bundle": cmd_export_bundle, "import-bundle": cmd_import_bundle, "questions": cmd_questions,
-     "report": cmd_report}[args.cmd](args, s)
+     "report": cmd_report, "prep": cmd_prep}[args.cmd](args, s)
 
 
 if __name__ == "__main__":

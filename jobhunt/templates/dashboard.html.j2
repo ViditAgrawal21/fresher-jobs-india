@@ -202,10 +202,12 @@
           <button type="button" id="af-all" class="go">Start autofill</button>
           <button type="button" id="vf-btn" title="Ask each company's job board whether the job is still open, and when it was published">Check jobs are still open</button>
           <button type="button" id="mail-btn" title="Read your Gmail for replies from companies and move those applications forward">Check email for replies</button>
+          <button type="button" id="fup-btn" hidden title="Write a short follow-up email in your Gmail Drafts for each application with no reply after 7 days. Nothing is sent.">Draft follow-ups</button>
           <label title="While this page's server runs: checks email, checks jobs are still open, searches for new jobs and tailors resumes for the best new matches, on a schedule">
             <input type="checkbox" id="pilot-on"> Autopilot</label>
         </div>
         <div class="board-note" id="pilot-note" role="status"></div>
+        <div class="board-note" id="fup-note" role="status"></div>
         <div class="board-note" id="mail-note" role="status"></div>
         <div class="board-note" id="board-note" role="status"></div>
       </div>
@@ -754,6 +756,15 @@
     const ready = label === "Ready to apply", auto = SERVER && ready && AUTO_OK(a.url);
     if (a.url && /^https?:\/\//.test(a.url)) node("a", { href: a.url, target: "_blank", rel: "noopener" }, acts, ready && !auto ? "Apply" : "Posting");
     if (a.resume) node("a", { href: a.resume, target: "_blank", rel: "noopener" }, acts, "Resume");
+    if (SERVER && a.prep) node("a", { href: a.prep, target: "_blank", rel: "noopener", title: "Likely questions, your best stories, topics to revise" }, acts, "Prep sheet");
+    else if (SERVER && isSent(a) && !["Rejected", "Ghosted", "Withdrawn"].includes(a.status)) {
+      const pb = node("button", { type: "button", title: "A one-page interview prep sheet from this job's JD and your profile" }, acts, "Make prep sheet");
+      pb.addEventListener("click", async () => {
+        pb.disabled = true; pb.textContent = "Writing…";
+        try { await post(`/api/prep/${a.id}`, {}); firstPoll = false; pollTasks(); }
+        catch (e) { pb.disabled = false; pb.textContent = "Make prep sheet"; boardNote(`Couldn't start it: ${e.message}`, true); }
+      });
+    }
     if (auto) {
       const b = node("button", { type: "button", class: "go", title: subBox.checked ? "Fill the form and submit it for you once every required question is answered"
         : "Open the form in a browser window and fill it in. You check it and click Submit." }, acts, subBox.checked ? "Auto-apply" : "Autofill");
@@ -895,6 +906,27 @@
     }
   }
 
+  // ---------- follow-up drafts (server mode) ----------
+  let fupTimer = null;
+  async function pollFollowups() {
+    clearTimeout(fupTimer);
+    let j;
+    try { j = await (await fetch("/api/followups", { cache: "no-store" })).json(); } catch (e) { return; }
+    const btn = document.getElementById("fup-btn"), note = document.getElementById("fup-note");
+    btn.hidden = !j.due && j.state !== "running";
+    btn.disabled = j.state === "running" || !j.configured;
+    btn.textContent = j.due ? `Draft follow-ups (${j.due})` : "Draft follow-ups";
+    if (!j.configured && j.due) btn.title = "Add GMAIL_APP_PASSWORD to .env to draft follow-ups in Gmail";
+    note.className = "board-note" + (j.state === "error" ? " err" : "");
+    note.textContent = j.state === "idle" ? "" : j.message;
+    if (j.state === "running") fupTimer = setTimeout(pollFollowups, 2000);
+    else if (j.state === "done") reload();
+  }
+  document.getElementById("fup-btn").addEventListener("click", async () => {
+    try { await post("/api/followups", {}); pollFollowups(); }
+    catch (e) { const n = document.getElementById("fup-note"); n.className = "board-note err"; n.textContent = e.message; }
+  });
+
   // ---------- autofill (server mode) ----------
   const subBox = document.getElementById("af-submit");
   try { subBox.checked = localStorage.getItem("jh-autosubmit") === "1"; } catch (e) {}
@@ -983,7 +1015,8 @@
       pollMail();
       pollPilot();
       loadReview();
-      setInterval(() => { pollMail(); pollVerify(); pollTasks(); pollPilot(); }, 30000);
+      pollFollowups();
+      setInterval(() => { pollMail(); pollVerify(); pollTasks(); pollPilot(); pollFollowups(); }, 30000);
       return;
     }
     if (typeof window.claude?.use !== "function") {
