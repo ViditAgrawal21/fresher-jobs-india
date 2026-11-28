@@ -365,6 +365,46 @@ def cmd_import_bundle(args, s) -> None:
     print(f"{len(out['added'])} application(s) added to Ready to apply, {out['leads']} new job match(es).")
 
 
+def cmd_questions(args, s) -> None:
+    """Where questions.yaml and answers.yaml are, what's still unanswered, and open them."""
+    from jobhunt import autofill
+    from jobhunt.questions import QuestionBank
+
+    autofill.load_answers(s)  # creates answers.yaml on first use
+    bank = QuestionBank(s.data_dir / "questions.yaml")
+    bank.create()
+    bank = QuestionBank(bank.path)
+    print(f"answers.yaml:   {autofill.answers_path(s).resolve()}")
+    print(f"questions.yaml: {bank.path.resolve()}")
+    waiting = [q for q in bank.unanswered() if q.get("required")]
+    drafts = [q for q in bank.items if q.get("reviewed") is False]
+    print(f"{len(bank.items)} questions saved; {len(waiting)} required ones need your answer"
+          + (f" ({len(drafts)} are drafts to read: set reviewed: true)" if drafts else "") + ".")
+    for q in waiting[:20]:
+        print(f"  - {q['ask'][:100]}" + ("  [draft]" if q.get("reviewed") is False else ""))
+    if not args.no_open:
+        _open_files([autofill.answers_path(s), bank.path])
+
+
+def _open_files(paths) -> None:
+    """Open files in VS Code if it's installed, else the system's default editor."""
+    import os
+    import shutil
+    import subprocess
+
+    code = shutil.which("code")
+    for path in paths:
+        try:
+            if code:
+                subprocess.Popen([code, str(path)], shell=sys.platform == "win32")
+            elif sys.platform == "win32":
+                os.startfile(str(path))  # type: ignore[attr-defined]
+            else:
+                subprocess.Popen(["xdg-open", str(path)])
+        except OSError as exc:
+            print(f"  (couldn't open {path}: {exc})")
+
+
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
     p = argparse.ArgumentParser(prog="python -m jobhunt", description=__doc__,
@@ -447,6 +487,9 @@ def main(argv: list[str] | None = None) -> None:
     a = sub.add_parser("import-bundle", help="add the applications and job matches in a bundle zip to your tracker")
     a.add_argument("file", nargs="?", help="the zip (or unzipped folder); default: the newest one in Downloads etc.")
 
+    a = sub.add_parser("questions", help="where answers.yaml and questions.yaml are, what's unanswered; opens them")
+    a.add_argument("--no-open", action="store_true", help="just print, don't open the files")
+
     a = sub.add_parser("serve", help="run the dashboard on localhost, with saving and autofill")
     a.add_argument("--port", type=int, default=8765)
     a.add_argument("--no-open", action="store_true", help="don't open the browser")
@@ -466,7 +509,7 @@ def main(argv: list[str] | None = None) -> None:
      "list": cmd_list, "followups": cmd_followups, "sync-mail": cmd_sync_mail, "discover": cmd_discover,
      "dashboard": cmd_dashboard, "import-status": cmd_import_status, "serve": cmd_serve, "verify": cmd_verify,
      "autofill": cmd_autofill,
-     "export-bundle": cmd_export_bundle, "import-bundle": cmd_import_bundle}[args.cmd](args, s)
+     "export-bundle": cmd_export_bundle, "import-bundle": cmd_import_bundle, "questions": cmd_questions}[args.cmd](args, s)
 
 
 if __name__ == "__main__":

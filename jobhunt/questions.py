@@ -43,7 +43,8 @@ class QuestionBank:
         self.path = Path(path)
         self.items: list[dict] = []
         if self.path.exists():
-            data = yaml.safe_load(self.path.read_text(encoding="utf-8")) or []
+            # utf-8-sig: Notepad and PowerShell may start the file with a byte-order mark.
+            data = yaml.safe_load(self.path.read_text(encoding="utf-8-sig")) or []
             self.items = [x for x in data if isinstance(x, dict) and x.get("ask")]
         self.dirty = False
 
@@ -91,6 +92,12 @@ class QuestionBank:
 
     def unanswered(self) -> list[dict]:
         return [x for x in self.items if x.get("answer") in (None, "") or x.get("reviewed") is False]
+
+    def create(self) -> None:
+        """Make the file (with its instructions) if it doesn't exist yet."""
+        if not self.path.exists():
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.write_text(HEADER + "\n[]\n", encoding="utf-8")
 
     def save(self) -> None:
         if not self.dirty:

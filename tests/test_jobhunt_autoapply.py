@@ -280,3 +280,22 @@ def test_skill_questions(label, ans):
 def test_cgpa_and_office_rules():
     assert autofill.answer_for("CGPA (out of 10)", {"cgpa": "7.5"}) == ("cgpa", "7.5")
     assert autofill.answer_for("Are you comfortable working from our Pune office 3 days a week?", {"work_from_office": "Yes"})[0] == "work_from_office"
+
+
+def test_questions_command_and_files_with_a_bom(tmp_path, monkeypatch, capsys):
+    from jobhunt.__main__ import main
+    from jobhunt.settings import get_settings
+
+    (tmp_path / "questions.yaml").write_text("﻿- ask: Is your primary programming language Go?\n  answer: 'No'\n"
+                                             "  required: true\n- ask: What excites you about {company}?\n  answer: ''\n"
+                                             "  required: true\n", encoding="utf-8")
+    monkeypatch.setenv("JOBHUNT_DATA_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    try:
+        main(["questions", "--no-open"])
+    finally:
+        get_settings.cache_clear()
+    out = capsys.readouterr().out
+    assert "questions.yaml:" in out and "2 questions saved; 1 required ones need your answer" in out
+    assert "What excites you about {company}?" in out and (tmp_path / "answers.yaml").exists()
+    assert QuestionBank(tmp_path / "questions.yaml").answer("Is your primary programming language Go?") == "No"

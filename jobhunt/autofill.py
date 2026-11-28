@@ -260,7 +260,8 @@ def load_answers(settings: JobhuntSettings) -> dict:
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(_answers_from_profile(profile), encoding="utf-8")
-    answers = {k: ("" if v is None else str(v)) for k, v in (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).items()}
+    raw = yaml.safe_load(path.read_text(encoding="utf-8-sig")) or {}  # -sig: files saved by Notepad/PowerShell
+    answers = {k: ("" if v is None else str(v)) for k, v in raw.items()}
     links = {l.label.lower(): l.url for l in profile.links}
     answers.setdefault("full_name", profile.name)
     # Added after some answers.yaml files were made: sensible defaults until you set your own.
