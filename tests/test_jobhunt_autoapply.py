@@ -253,3 +253,30 @@ def test_a_ticked_radio_group_counts_as_answered_on_the_next_pass(page, tmp_path
     autofill.fill_page(page, {"total_experience_years": "2.3"}, None, done, bank=bank)
     second = autofill.fill_page(page, {"total_experience_years": "2.3"}, None, done, bank=bank)
     assert page.eval_on_selector("input[value=a]", "e => e.checked") and second["unknown"] == [] and bank.items == []
+
+
+def test_drafts_wait_for_review(tmp_path):
+    bank = QuestionBank(tmp_path / "q.yaml")
+    bank.learn("What excites you about {company}?", company="Fam", kind="text", required=True)
+    bank.items[0].update(answer="Payments for teenagers", reviewed=False)
+    assert bank.answer("What excites you about Fam?", company="Fam") == "" and len(bank.unanswered()) == 1
+    bank.items[0]["reviewed"] = True
+    assert bank.answer("What excites you about Fam?", company="Fam") == "Payments for teenagers"
+
+
+@pytest.mark.parametrize("label,ans", [
+    ("Do you have hands-on experience with React and Node.js?", "Yes"),
+    ("Have you worked with PostgreSQL?", "Yes"),
+    ("Have you worked hands-on with OIDC or OAuth 2.0?", ""),       # "or": which one? left for you
+    ("Do you have experience with Kubernetes?", ""),               # not on your profile: never a guessed "No"
+    ("Is your primary programming language Go?", ""),
+    ("How many years of experience do you have with React?", ""),
+])
+def test_skill_questions(label, ans):
+    skills = {"React", "Node.js", "PostgreSQL", "Python"}
+    assert autofill.skill_answer(label, skills) == ans
+
+
+def test_cgpa_and_office_rules():
+    assert autofill.answer_for("CGPA (out of 10)", {"cgpa": "7.5"}) == ("cgpa", "7.5")
+    assert autofill.answer_for("Are you comfortable working from our Pune office 3 days a week?", {"work_from_office": "Yes"})[0] == "work_from_office"

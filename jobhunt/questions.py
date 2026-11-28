@@ -26,6 +26,7 @@ HEADER = """\
 # - Yes/No: write Yes or No.
 # - {company} and {role} stand for the job's company and title.
 # A required question with no answer stops autofill from submitting that form for you.
+# `reviewed: false` marks a draft written for you: it isn't used until you read it and set it to true.
 """
 
 
@@ -62,7 +63,7 @@ class QuestionBank:
 
     def answer(self, label: str, company: str = "", role: str = "") -> str:
         item = self.find(label, company)
-        if not item or item.get("answer") in (None, ""):
+        if not item or item.get("answer") in (None, "") or item.get("reviewed") is False:
             return ""
         return str(item["answer"]).replace("{company}", company).replace("{role}", role)
 
@@ -89,7 +90,7 @@ class QuestionBank:
             self.dirty = True
 
     def unanswered(self) -> list[dict]:
-        return [x for x in self.items if x.get("answer") in (None, "")]
+        return [x for x in self.items if x.get("answer") in (None, "") or x.get("reviewed") is False]
 
     def save(self) -> None:
         if not self.dirty:

@@ -58,6 +58,8 @@ needs_sponsorship: "No"
 heard_of_company_before: "Yes"
 consent_to_terms: "Yes"         # tick "I agree to the privacy policy" style boxes for you
 worked_here_before: "No"        # "Have you ever worked at {company}?"
+work_from_office: "Yes"         # "Are you comfortable working from our office 3 days a week?"
+cgpa: {cgpa}
 gender: ""                      # if a form insists, e.g. "Male", or "Decline to self-identify"
 school: {school}
 degree: {degree}
@@ -105,6 +107,9 @@ RULES: list[tuple[str, str | None]] = [
     (r"how did you (hear|come to know|find|learn)|where did you (hear|find)|^source\b", "how_did_you_hear"),
     (r"(know|heard) (about|of) .{0,40} before", "heard_of_company_before"),
     (r"\bgender\b|what do you identify as", "gender"),
+    (r"\bc?gpa\b|cumulative grade|grade point|graduation (percentage|marks|score)|aggregate (percentage|marks)", "cgpa"),
+    (r"(work|working) (from|at|in) (the |our |an )?([\w-]+ )?office|(comfortable|okay|ok|open|willing|able)\b.{0,40}"
+     r"\b(on-?site|hybrid|in[- ]office)|\boffice\b.{0,40}\bdays? (a|per|each) week", "work_from_office"),
     (r"\bcity\b", "city"),
     (r"^country\b|country of residence|current country|choose the country|which country|country (in which|where) you",
      "country"),
@@ -237,7 +242,15 @@ def _answers_from_profile(profile) -> str:
         first=q(first), last=q(last), company=q(job.company if job else ""), title=q(job.title if job else ""),
         school=q(edu.school if edu else ""),
         degree=q("Bachelor's Degree" if degree.startswith(("B.", "B ", "Bachelor")) else degree.strip()),
-        discipline=q(discipline.strip()), end_month=q(f"{end:%B}" if end else ""), end_year=q(f"{end:%Y}" if end else ""))
+        discipline=q(discipline.strip()), end_month=q(f"{end:%B}" if end else ""), end_year=q(f"{end:%Y}" if end else ""),
+        cgpa=q(_cgpa(profile)))
+
+
+def _cgpa(profile) -> str:
+    """"CGPA: 7.5/10" on the first education entry -> "7.5"."""
+    edu = profile.education[0] if profile.education else None
+    m = re.search(r"(\d+(?:\.\d+)?)\s*/\s*10", edu.grade if edu else "")
+    return m.group(1) if m else ""
 
 
 def load_answers(settings: JobhuntSettings) -> dict:
@@ -253,6 +266,9 @@ def load_answers(settings: JobhuntSettings) -> dict:
     # Added after some answers.yaml files were made: sensible defaults until you set your own.
     answers.setdefault("consent_to_terms", "Yes")
     answers.setdefault("worked_here_before", "No")
+    answers.setdefault("work_from_office", "Yes")
+    answers.setdefault("cgpa", _cgpa(profile))
+    answers["_skills"] = profile.supported_terms()  # for "Do you have experience with X?" questions
     answers.setdefault("email", settings.candidate_email)
     answers.setdefault("phone", settings.candidate_phone)
     answers.setdefault("linkedin", links.get("linkedin", ""))
@@ -426,11 +442,29 @@ CONSENT = re.compile(r"\bagree\b|consent|acknowledge|privacy|terms|certify|i con
 _YES = re.compile(r"^\s*(yes|y|true|1|tick|check(ed)?)\s*$", re.I)
 
 
+_SKILL_Q = re.compile(r"^\s*(do|have|are|can|is|did) you\b.{0,80}\b(experience|worked|work|used|familiar|comfortable"
+                      r"|proficient|knowledge|hands-on|skilled|built|know)", re.I)
+
+
+def skill_answer(label: str, skills: set | None) -> str:
+    """"Yes" to "Do you have experience with React and Node.js?" when your profile backs up every skill it
+    names. Never "No": a skill missing from your profile is left for you to answer."""
+    from jobhunt.keywords import extract_terms
+
+    if not skills or not _SKILL_Q.search(label) or re.search(r"\bor\b|\bprimary\b|\bmain\b|years", label, re.I):
+        return ""
+    terms = extract_terms(label)
+    return "Yes" if terms and terms <= skills else ""
+
+
 def _lookup(label: str, answers: dict, bank, company: str, role: str) -> tuple[str | None, str]:
-    """(answers.yaml key or None, answer) for a question: the standard rules first, then the question bank."""
+    """(answers.yaml key or None, answer) for a question: the standard rules, then the question bank, then
+    yes/no skill questions your profile backs up."""
     key, value = answer_for(label, answers)
     if not value and bank is not None:
         value = bank.answer(label, company, role)
+    if not value and key is None:
+        value = skill_answer(label, answers.get("_skills"))
     return key, value
 
 
